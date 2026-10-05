@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="Local AI Video Clipper API")
+from app.config import Settings
+
+settings = Settings()
+app = FastAPI(title=settings.project_name)
 
 
 @app.get("/health")
