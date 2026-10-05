@@ -28,8 +28,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2025-02-07T23-21-09Z
-    command: server /data --console-address ":9001"
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r0
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-clipper}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-clipper-dev-password}
@@ -37,9 +36,9 @@ services:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/ready"]
       interval: 5s
       timeout: 5s
       retries: 10
