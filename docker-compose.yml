@@ -30,6 +30,7 @@ services:
   minio:
     image: bitnamilegacy/minio:2025.7.23-debian-12-r0
     environment:
+      MINIO_BROWSER: "on"
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-clipper}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-clipper-dev-password}
     ports:
