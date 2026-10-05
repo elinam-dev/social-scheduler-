@@ -1,0 +1,39 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+
+# Local data and generated media
+data/
+uploads/
+renders/
+*.wav
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.ass
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
