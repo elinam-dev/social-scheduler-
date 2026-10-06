@@ -46,7 +46,12 @@ returns an empty list. `PATCH /clips/{clip_id}/trim` saves validated start/end
 seconds for the transcript editor; changing boundaries marks the clip pending
 until a new render is produced. `PATCH /clips/{clip_id}/caption-style` saves a
 built-in caption style (`default`, `minimal`, or `word-highlight`) and likewise
-marks a changed clip pending until it is rendered again.
+marks a changed clip pending until it is rendered again. The
+`POST /clips/{clip_id}/render` endpoint queues an individual captioned render
+and returns a job that can be monitored through the same SSE endpoint. Rerender
+uses the clip's saved boundaries, aspect ratio, transcript word timing, and
+caption preset. It currently uses the blurred-background layout while preserving
+source audio when present.
 Transcription uses the configurable `CLIPPER_WHISPER_MODEL` setting (default
 `small`); faster-whisper downloads the selected model on first use and caches its
 weights in a persistent Docker volume outside the repository. CPU uses int8

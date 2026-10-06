@@ -25,8 +25,10 @@ scores, and plays ready previews from the local API. The transcript trim editor
 sets clip boundaries from transcript segments or exact seconds and saves them
 through the API. Each clip also has a persisted caption-style picker for the
 default, minimal, and word-highlight presets. Saving trim or style changes
-marks the clip pending until it is rendered again. Videos without saved clips
-show an empty state.
+marks the clip pending until it is rendered again. Re-render any clip
+individually and follow its live job progress. Renders burn captions using the
+selected style and use a blurred-background layout at the clip's saved aspect
+ratio. Videos without saved clips show an empty state.
 
 Check the app with:
 

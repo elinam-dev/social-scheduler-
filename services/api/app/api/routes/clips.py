@@ -1,22 +1,30 @@
+import logging
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 from botocore.exceptions import BotoCoreError, ClientError
 from botocore.response import StreamingBody
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
+from redis.exceptions import RedisError
+from rq import Queue
+from rq.job import Callback
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Clip, Video
+from app.db.models import Clip, Job, Video
 from app.db.session import get_session
+from app.queue import get_queue
 from app.schemas.clip import (
     ClipCaptionStyleUpdate,
     ClipRead,
     ClipTrimUpdate,
 )
+from app.schemas.job import JobRead
 from app.storage import ObjectStorage, get_object_storage
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["clips"])
 
 
@@ -126,6 +134,82 @@ def update_clip_caption_style(
         session.refresh(clip)
 
     return _clip_read(clip)
+
+
+@router.post(
+    "/clips/{clip_id}/render",
+    response_model=JobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def render_clip(
+    clip_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    queue: Queue = Depends(get_queue),
+) -> JobRead:
+    clip = session.get(Clip, clip_id)
+    if clip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clip not found",
+        )
+    if clip.status == "rendering":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Clip is already rendering",
+        )
+
+    video = session.get(Video, clip.video_id)
+    if video is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found",
+        )
+    if video.status != "ready" or video.transcript is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Video transcript is not available for rendering",
+        )
+    if video.duration_seconds is not None and clip.end_seconds > video.duration_seconds:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Clip end must not exceed the video duration",
+        )
+
+    job_id = uuid.uuid4()
+    job = Job(
+        id=job_id,
+        project_id=video.project_id,
+        video_id=video.id,
+        job_type="render_clip",
+        rq_job_id=str(job_id),
+    )
+    clip.status = "rendering"
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+
+    try:
+        queue.enqueue(
+            "clipper_worker.tasks.render_clip_job",
+            str(clip.id),
+            str(job.id),
+            job_id=job.rq_job_id,
+            job_timeout=21600,
+            on_failure=Callback("clipper_worker.tasks.mark_clip_render_failed"),
+        )
+    except RedisError as error:
+        logger.exception("Could not queue render job for clip %s", clip.id)
+        clip.status = "failed"
+        job.status = "failed"
+        job.error_message = "Could not submit clip render job to Redis"
+        job.completed_at = datetime.now(UTC)
+        session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Clip render job could not be queued",
+        ) from error
+
+    return JobRead.model_validate(job)
 
 
 def _stream_body(body: StreamingBody) -> Iterator[bytes]:

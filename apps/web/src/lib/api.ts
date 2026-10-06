@@ -248,6 +248,12 @@ export const api = {
     );
   },
 
+  renderClip(clipId: string): Promise<JobRead> {
+    return request<JobRead>(`/clips/${encodeURIComponent(clipId)}/render`, {
+      method: "POST",
+    });
+  },
+
   clipPreviewUrl(clipId: string): string {
     return `${apiBaseUrl}/clips/${encodeURIComponent(clipId)}/preview`;
   },

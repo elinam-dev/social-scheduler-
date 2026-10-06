@@ -53,6 +53,8 @@ export default function Home() {
   const [stage, setStage] = useState<UploadStage>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [job, setJob] = useState<JobRead | null>(null);
+  const [renderJob, setRenderJob] = useState<JobRead | null>(null);
+  const [renderingClipId, setRenderingClipId] = useState<string | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [clips, setClips] = useState<ClipRead[] | null>(null);
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
@@ -66,6 +68,7 @@ export default function Home() {
   const [styleSavingClipId, setStyleSavingClipId] = useState<string | null>(null);
   const [styleError, setStyleError] = useState<string | null>(null);
   const [styleNotice, setStyleNotice] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clipError, setClipError] = useState<string | null>(null);
   const [streamWarning, setStreamWarning] = useState<string | null>(null);
@@ -196,6 +199,63 @@ export default function Home() {
     }
   }
 
+  async function rerenderClip(clip: ClipRead) {
+    closeTrimEditor();
+    setRenderingClipId(clip.id);
+    setRenderError(null);
+    setStreamWarning(null);
+    try {
+      const queuedJob = await api.renderClip(clip.id);
+      setRenderJob(queuedJob);
+      setClips((current) =>
+        current?.map((item) =>
+          item.id === clip.id
+            ? { ...item, status: "rendering", preview_url: null }
+            : item,
+        ) ?? null,
+      );
+
+      eventSource.current?.close();
+      const source = new EventSource(api.jobEventsUrl(queuedJob.id));
+      eventSource.current = source;
+      source.onmessage = (message) => {
+        try {
+          const update = JSON.parse(message.data) as JobRead;
+          setRenderJob(update);
+          if (isTerminal(update)) {
+            source.close();
+            eventSource.current = null;
+            setRenderingClipId(null);
+            if (update.status === "failed") {
+              setRenderError(
+                update.error_message ?? "The clip could not be rendered.",
+              );
+            }
+            void loadClips(clip.video_id);
+          }
+        } catch {
+          source.close();
+          eventSource.current = null;
+          setRenderingClipId(null);
+          setRenderError("The API sent an invalid render update.");
+        }
+      };
+      source.onerror = () => {
+        setStreamWarning(
+          "Render updates interrupted. Reconnecting to the local API…",
+        );
+      };
+    } catch (cause) {
+      setRenderingClipId(null);
+      void loadClips(clip.video_id);
+      setRenderError(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not start the clip render on the local API.",
+      );
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file) {
@@ -207,6 +267,8 @@ export default function Home() {
     setError(null);
     setStreamWarning(null);
     setJob(null);
+    setRenderJob(null);
+    setRenderingClipId(null);
     setVideoId(null);
     setClips(null);
     setClipError(null);
@@ -215,6 +277,7 @@ export default function Home() {
     setTrimNotice(null);
     setStyleError(null);
     setStyleNotice(null);
+    setRenderError(null);
     setUploadProgress(0);
     setStage("creating");
 
@@ -505,6 +568,19 @@ export default function Home() {
                     >
                       Edit trim
                     </button>
+                    <button
+                      className="ml-2 mt-4 rounded-lg bg-[#194d40] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#123e33] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={
+                        renderingClipId !== null ||
+                        styleSavingClipId !== null ||
+                        trimSaving ||
+                        clip.status === "rendering"
+                      }
+                      onClick={() => void rerenderClip(clip)}
+                      type="button"
+                    >
+                      {renderingClipId === clip.id ? "Rendering…" : "Re-render"}
+                    </button>
                     <label className="mt-4 block text-xs font-semibold text-[#52645d]">
                       Caption style
                       <select
@@ -564,6 +640,44 @@ export default function Home() {
               role="status"
             >
               {styleNotice}
+            </p>
+          )}
+          {renderJob && (
+            <div
+              className="mt-5 rounded-xl border border-[#dfe2db] bg-white px-4 py-3"
+              aria-live="polite"
+              role="status"
+            >
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium text-[#52645d]">
+                  Clip render {renderJob.status}
+                </span>
+                <span className="text-[#78847d]">{renderJob.progress}%</span>
+              </div>
+              <div
+                className="mt-2 h-2 overflow-hidden rounded-full bg-[#edf0eb]"
+                role="progressbar"
+                aria-label="Clip render progress"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={renderJob.progress}
+              >
+                <div
+                  className="h-full rounded-full bg-[#4f9b72] transition-[width]"
+                  style={{ width: `${renderJob.progress}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {streamWarning && renderJob && renderingClipId && (
+            <p className="mt-3 text-xs text-[#78847d]">{streamWarning}</p>
+          )}
+          {renderError && (
+            <p
+              className="mt-3 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-700"
+              role="alert"
+            >
+              {renderError}
             </p>
           )}
           {editingClipId && (
