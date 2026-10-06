@@ -111,6 +111,27 @@ def test_process_video_updates_job_and_persists_metadata(
         assert stored_video.width == 1920
         assert stored_video.height == 1080
         assert stored_video.audio_object_key == f"{project_id}/{video_id}/audio.wav"
+        assert stored_video.transcript == {
+            "language": "en",
+            "language_probability": 0.99,
+            "duration_seconds": 3.0,
+            "segments": [
+                {
+                    "start_seconds": 0.0,
+                    "end_seconds": 3.0,
+                    "text": "An example transcript.",
+                    "words": [
+                        {
+                            "start_seconds": 0.0,
+                            "end_seconds": 3.0,
+                            "text": "transcript.",
+                            "probability": 0.98,
+                            "speaker_id": "speaker_1",
+                        }
+                    ],
+                }
+            ],
+        }
         assert stored_job.status == "succeeded"
         assert stored_job.progress == 100
     assert storage.uploads == {f"{project_id}/{video_id}/audio.wav": b"wav bytes"}

@@ -38,3 +38,8 @@ Speaker diarization uses pyannote locally. Before processing uploads, accept the
 Hugging Face terms for `pyannote/speaker-diarization-3.1` and its linked models,
 create a read token, and place it in `CLIPPER_HF_TOKEN` in your untracked `.env`
 file. Do not commit that token.
+
+Completed jobs store the validated transcript JSON on the video record. Retrieve
+it with `GET /videos/{video_id}/transcript`; the response contains the detected
+language and confidence, duration, segments, word timestamps and confidence, and
+speaker IDs. The endpoint returns `409` while transcription is not yet available.

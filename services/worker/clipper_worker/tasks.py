@@ -9,6 +9,7 @@ from rq.job import Job as RQJob
 from app.config import Settings
 from app.db.models import Job, Video
 from app.db.session import SessionLocal
+from app.schemas.transcript import TranscriptSchema
 from app.storage import get_object_storage
 from clipper_worker.diarization import attach_speakers, diarize_audio
 from clipper_worker.media import AudioExtractionError, extract_audio, probe_media
@@ -69,6 +70,9 @@ def process_video(video_id: str, job_id: str) -> TranscriptionResult:
         video.width = metadata.width
         video.height = metadata.height
         video.frame_rate = metadata.frame_rate
+        video.transcript = TranscriptSchema.model_validate(transcription).model_dump(
+            mode="json"
+        )
         video.status = "ready"
         job.status = "succeeded"
         job.progress = 100
