@@ -60,6 +60,9 @@ class Clip(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"
     )
+    caption_style: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="default", server_default="default"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

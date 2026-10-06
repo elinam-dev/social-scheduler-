@@ -23,7 +23,10 @@ then listens to the job event stream until processing succeeds or fails. Once
 processing succeeds, the page loads saved clips, displays their titles and
 scores, and plays ready previews from the local API. The transcript trim editor
 sets clip boundaries from transcript segments or exact seconds and saves them
-through the API. Videos without saved clips show an empty state.
+through the API. Each clip also has a persisted caption-style picker for the
+default, minimal, and word-highlight presets. Saving trim or style changes
+marks the clip pending until it is rendered again. Videos without saved clips
+show an empty state.
 
 Check the app with:
 

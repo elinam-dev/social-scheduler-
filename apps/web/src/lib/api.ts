@@ -33,6 +33,8 @@ export interface JobRead {
   completed_at: string | null;
 }
 
+export type CaptionStyleName = "default" | "minimal" | "word-highlight";
+
 export interface ClipRead {
   id: string;
   video_id: string;
@@ -43,6 +45,7 @@ export interface ClipRead {
   title: string | null;
   aspect_ratio: string;
   status: string;
+  caption_style: CaptionStyleName;
   created_at: string;
   preview_url: string | null;
 }
@@ -50,6 +53,10 @@ export interface ClipRead {
 export interface ClipTrimUpdate {
   start_seconds: number;
   end_seconds: number;
+}
+
+export interface ClipCaptionStyleUpdate {
+  caption_style: CaptionStyleName;
 }
 
 export interface VideoUploadResponse {
@@ -225,6 +232,20 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(boundaries),
     });
+  },
+
+  updateClipCaptionStyle(
+    clipId: string,
+    style: ClipCaptionStyleUpdate,
+  ): Promise<ClipRead> {
+    return request<ClipRead>(
+      `/clips/${encodeURIComponent(clipId)}/caption-style`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(style),
+      },
+    );
   },
 
   clipPreviewUrl(clipId: string): string {

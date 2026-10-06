@@ -34,6 +34,7 @@ def test_initial_migration_creates_all_tables_and_constraints(
         constraint["name"] for constraint in schema.get_check_constraints("clips")
     }
     assert "transcript" in {column["name"] for column in schema.get_columns("videos")}
+    assert "caption_style" in {column["name"] for column in schema.get_columns("clips")}
 
 
 def test_clip_schema_rejects_end_before_start() -> None:

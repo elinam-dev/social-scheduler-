@@ -6,12 +6,35 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   api,
   ApiError,
+  type CaptionStyleName,
   type ClipRead,
   type JobRead,
   type Transcript,
 } from "@/lib/api";
 
 type UploadStage = "idle" | "creating" | "uploading" | "processing" | "succeeded" | "failed";
+
+const CAPTION_STYLE_OPTIONS: {
+  value: CaptionStyleName;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "default",
+    label: "Default",
+    description: "Bold, outlined captions with a dark backing.",
+  },
+  {
+    value: "minimal",
+    label: "Minimal",
+    description: "Smaller captions with a lighter outline.",
+  },
+  {
+    value: "word-highlight",
+    label: "Word highlight",
+    description: "Highlights each spoken word as it appears.",
+  },
+];
 
 function isTerminal(job: JobRead): boolean {
   return job.status === "succeeded" || job.status === "failed";
@@ -40,6 +63,9 @@ export default function Home() {
   const [trimSaving, setTrimSaving] = useState(false);
   const [trimError, setTrimError] = useState<string | null>(null);
   const [trimNotice, setTrimNotice] = useState<string | null>(null);
+  const [styleSavingClipId, setStyleSavingClipId] = useState<string | null>(null);
+  const [styleError, setStyleError] = useState<string | null>(null);
+  const [styleNotice, setStyleNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clipError, setClipError] = useState<string | null>(null);
   const [streamWarning, setStreamWarning] = useState<string | null>(null);
@@ -142,6 +168,34 @@ export default function Home() {
     }
   }
 
+  async function saveCaptionStyle(
+    clip: ClipRead,
+    captionStyle: CaptionStyleName,
+  ) {
+    setStyleSavingClipId(clip.id);
+    setStyleError(null);
+    setStyleNotice(null);
+    try {
+      const updated = await api.updateClipCaptionStyle(clip.id, {
+        caption_style: captionStyle,
+      });
+      setClips((current) =>
+        current?.map((item) => (item.id === updated.id ? updated : item)) ?? null,
+      );
+      setStyleNotice(
+        "Caption style saved. Render the clip again to apply it.",
+      );
+    } catch (cause) {
+      setStyleError(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not save the caption style to the local API.",
+      );
+    } finally {
+      setStyleSavingClipId(null);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file) {
@@ -159,6 +213,8 @@ export default function Home() {
     closeTrimEditor();
     setTrimError(null);
     setTrimNotice(null);
+    setStyleError(null);
+    setStyleNotice(null);
     setUploadProgress(0);
     setStage("creating");
 
@@ -449,6 +505,38 @@ export default function Home() {
                     >
                       Edit trim
                     </button>
+                    <label className="mt-4 block text-xs font-semibold text-[#52645d]">
+                      Caption style
+                      <select
+                        className="mt-2 w-full rounded-lg border border-[#dfe2db] bg-white px-3 py-2 text-sm font-normal"
+                        disabled={
+                          styleSavingClipId !== null ||
+                          clip.status === "rendering"
+                        }
+                        onChange={(event) => {
+                          const selected = CAPTION_STYLE_OPTIONS.find(
+                            (option) => option.value === event.target.value,
+                          );
+                          if (selected) {
+                            void saveCaptionStyle(clip, selected.value);
+                          }
+                        }}
+                        value={clip.caption_style}
+                      >
+                        {CAPTION_STYLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="mt-2 block font-normal text-[#78847d]">
+                        {
+                          CAPTION_STYLE_OPTIONS.find(
+                            (option) => option.value === clip.caption_style,
+                          )?.description
+                        }
+                      </span>
+                    </label>
                   </div>
                 </article>
               ))}
@@ -460,6 +548,22 @@ export default function Home() {
               role="status"
             >
               {trimNotice}
+            </p>
+          )}
+          {styleError && (
+            <p
+              className="mt-5 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-700"
+              role="alert"
+            >
+              {styleError}
+            </p>
+          )}
+          {styleNotice && (
+            <p
+              className="mt-5 rounded-xl bg-[#e9f3ed] px-4 py-3 text-sm text-[#397263]"
+              role="status"
+            >
+              {styleNotice}
             </p>
           )}
           {editingClipId && (

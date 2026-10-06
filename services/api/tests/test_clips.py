@@ -107,6 +107,14 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
                 f"/clips/{ready_clip_id}/trim",
                 json={"start_seconds": 30, "end_seconds": 20},
             )
+            updated_style = await client.patch(
+                f"/clips/{ready_clip_id}/caption-style",
+                json={"caption_style": "word-highlight"},
+            )
+            invalid_style = await client.patch(
+                f"/clips/{ready_clip_id}/caption-style",
+                json={"caption_style": "unlisted-style"},
+            )
             missing_clip = await client.get(f"/clips/{uuid.uuid4()}/preview")
             missing_video = await client.get(f"/videos/{uuid.uuid4()}/clips")
         return (
@@ -118,6 +126,8 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             preview_after_trim,
             outside_video,
             reversed_trim,
+            updated_style,
+            invalid_style,
             missing_clip,
             missing_video,
         )
@@ -132,6 +142,8 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             preview_after_trim,
             outside_video,
             reversed_trim,
+            updated_style,
+            invalid_style,
             missing_clip,
             missing_video,
         ) = anyio.run(request_routes)
@@ -162,6 +174,10 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
     assert preview_after_trim.status_code == 409
     assert outside_video.status_code == 422
     assert reversed_trim.status_code == 422
+    assert updated_style.status_code == 200
+    assert updated_style.json()["caption_style"] == "word-highlight"
+    assert updated_style.json()["status"] == "pending"
+    assert invalid_style.status_code == 422
     assert missing_clip.status_code == 404
     assert missing_video.status_code == 404
 
@@ -169,3 +185,4 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
         updated_clip = session.get(Clip, ready_clip_id)
         assert updated_clip is not None
         assert updated_clip.object_key == "clips/ready.mp4"
+        assert updated_clip.caption_style == "word-highlight"

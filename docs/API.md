@@ -44,7 +44,9 @@ After processing, the web app requests ranked clip metadata from
 HTTP byte ranges for playback seeking. A video with no saved clip records
 returns an empty list. `PATCH /clips/{clip_id}/trim` saves validated start/end
 seconds for the transcript editor; changing boundaries marks the clip pending
-until a new render is produced.
+until a new render is produced. `PATCH /clips/{clip_id}/caption-style` saves a
+built-in caption style (`default`, `minimal`, or `word-highlight`) and likewise
+marks a changed clip pending until it is rendered again.
 Transcription uses the configurable `CLIPPER_WHISPER_MODEL` setting (default
 `small`); faster-whisper downloads the selected model on first use and caches its
 weights in a persistent Docker volume outside the repository. CPU uses int8

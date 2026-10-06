@@ -10,7 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Clip, Video
 from app.db.session import get_session
-from app.schemas.clip import ClipRead, ClipTrimUpdate
+from app.schemas.clip import (
+    ClipCaptionStyleUpdate,
+    ClipRead,
+    ClipTrimUpdate,
+)
 from app.storage import ObjectStorage, get_object_storage
 
 router = APIRouter(tags=["clips"])
@@ -90,6 +94,33 @@ def update_clip_trim(
     ):
         clip.start_seconds = boundaries.start_seconds
         clip.end_seconds = boundaries.end_seconds
+        clip.status = "pending"
+        session.commit()
+        session.refresh(clip)
+
+    return _clip_read(clip)
+
+
+@router.patch("/clips/{clip_id}/caption-style", response_model=ClipRead)
+def update_clip_caption_style(
+    clip_id: uuid.UUID,
+    style: ClipCaptionStyleUpdate,
+    session: Session = Depends(get_session),
+) -> ClipRead:
+    clip = session.get(Clip, clip_id)
+    if clip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clip not found",
+        )
+    if clip.status == "rendering":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Caption style cannot be changed while rendering",
+        )
+
+    if style.caption_style != clip.caption_style:
+        clip.caption_style = style.caption_style
         clip.status = "pending"
         session.commit()
         session.refresh(clip)
