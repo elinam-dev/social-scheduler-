@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "videos": [
+    {
+      "id": "video-01",
+      "path": "videos/video-01.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-02",
+      "path": "videos/video-02.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-03",
+      "path": "videos/video-03.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-04",
+      "path": "videos/video-04.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-05",
+      "path": "videos/video-05.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-06",
+      "path": "videos/video-06.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-07",
+      "path": "videos/video-07.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-08",
+      "path": "videos/video-08.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-09",
+      "path": "videos/video-09.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-10",
+      "path": "videos/video-10.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-11",
+      "path": "videos/video-11.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-12",
+      "path": "videos/video-12.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-13",
+      "path": "videos/video-13.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-14",
+      "path": "videos/video-14.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-15",
+      "path": "videos/video-15.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-16",
+      "path": "videos/video-16.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-17",
+      "path": "videos/video-17.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-18",
+      "path": "videos/video-18.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-19",
+      "path": "videos/video-19.mp4",
+      "clips": []
+    },
+    {
+      "id": "video-20",
+      "path": "videos/video-20.mp4",
+      "clips": []
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Clipper evaluation manifest",
+  "type": "object",
+  "required": [
+    "version",
+    "videos"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "videos": {
+      "type": "array",
+      "minItems": 20,
+      "items": {
+        "$ref": "#/$defs/video"
+      }
+    }
+  },
+  "$defs": {
+    "video": {
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "clips"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clips": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/clip"
+          }
+        }
+      }
+    },
+    "clip": {
+      "type": "object",
+      "required": [
+        "start_seconds",
+        "end_seconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "title": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
