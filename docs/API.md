@@ -66,7 +66,9 @@ audio is trimmed to the requested sample times.
 Face detection uses MediaPipe locally and returns normalized face boxes with
 frame timestamps and confidence scores. Frames are sampled at a configurable
 interval (one second by default); no external model download or cloud service is
-required.
+required. A greedy intersection-over-union tracker links detections between
+samples into deterministic face tracks, with configurable overlap and maximum
+gap thresholds.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
