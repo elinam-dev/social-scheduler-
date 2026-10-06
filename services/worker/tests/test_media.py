@@ -1,5 +1,7 @@
 import json
+import shutil
 import subprocess
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +13,49 @@ from clipper_worker.media import (
     extract_audio,
     probe_media,
 )
+
+
+@pytest.fixture
+def sample_video(tmp_path: Path) -> Path:
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if ffmpeg is None or ffprobe is None:
+        pytest.skip("FFmpeg and FFprobe are required for the generated sample fixture")
+
+    video_path = tmp_path / "sample.mp4"
+    subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-nostdin",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=160x90:r=10:d=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=16000:duration=2",
+            "-t",
+            "2",
+            "-c:v",
+            "mpeg4",
+            "-q:v",
+            "5",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "32k",
+            str(video_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return video_path
 
 
 def test_probe_media_extracts_video_metadata(
@@ -49,6 +94,20 @@ def test_probe_media_extracts_video_metadata(
     assert metadata.has_audio is True
     assert "-show_entries" in captured_command
     assert str(video_path) in captured_command
+
+
+def test_generated_sample_video_probes_and_extracts_audio(sample_video: Path) -> None:
+    metadata = probe_media(sample_video)
+    audio_path = extract_audio(sample_video, sample_video.with_suffix(".wav"))
+
+    assert sample_video.stat().st_size < 10 * 1024 * 1024
+    assert metadata.duration_seconds == pytest.approx(2, abs=0.1)
+    assert (metadata.width, metadata.height) == (160, 90)
+    assert metadata.has_audio is True
+    with wave.open(str(audio_path), "rb") as audio:
+        assert audio.getnchannels() == 1
+        assert audio.getframerate() == 16000
+        assert audio.getnframes() / audio.getframerate() == pytest.approx(2, abs=0.1)
 
 
 def test_probe_media_rejects_file_without_video_stream(
