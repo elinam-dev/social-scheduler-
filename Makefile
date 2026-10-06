@@ -15,6 +15,7 @@ format-check:
 
 test:
 	cd services/api && pytest
+	cd services/worker && pytest
 
 db-upgrade:
 	cd services/api && alembic upgrade head
