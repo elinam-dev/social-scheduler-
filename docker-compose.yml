@@ -44,6 +44,15 @@ services:
       timeout: 5s
       retries: 10
 
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    ports:
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -92,6 +101,11 @@ services:
       CLIPPER_OBJECT_STORAGE_BUCKET: ${CLIPPER_OBJECT_STORAGE_BUCKET:-videos}
       CLIPPER_WHISPER_MODEL: ${CLIPPER_WHISPER_MODEL:-small}
       CLIPPER_HF_TOKEN: ${CLIPPER_HF_TOKEN:-}
+      CLIPPER_LLM_PROVIDER: ${CLIPPER_LLM_PROVIDER:-ollama}
+      CLIPPER_LLM_MODEL: ${CLIPPER_LLM_MODEL:-llama3.2}
+      CLIPPER_OLLAMA_BASE_URL: ${CLIPPER_OLLAMA_BASE_URL:-http://ollama:11434}
+      CLIPPER_LLM_API_BASE_URL: ${CLIPPER_LLM_API_BASE_URL:-https://api.openai.com/v1}
+      CLIPPER_LLM_API_KEY: ${CLIPPER_LLM_API_KEY:-}
       HF_HOME: /models
       PYANNOTE_CACHE: /models/pyannote
       REDIS_URL: redis://redis:6379/0
@@ -111,3 +125,4 @@ volumes:
   redis_data:
   minio_data:
   whisper_models:
+  ollama_data:

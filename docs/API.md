@@ -43,3 +43,17 @@ Completed jobs store the validated transcript JSON on the video record. Retrieve
 it with `GET /videos/{video_id}/transcript`; the response contains the detected
 language and confidence, duration, segments, word timestamps and confidence, and
 speaker IDs. The endpoint returns `409` while transcription is not yet available.
+
+Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
+`CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
+Compose service and download the configured model with:
+
+```sh
+docker compose --profile llm up -d ollama
+docker compose exec ollama ollama pull llama3.2
+```
+
+To use an OpenAI-compatible backend instead, set
+`CLIPPER_LLM_PROVIDER=openai-compatible`, its model and base URL, and
+`CLIPPER_LLM_API_KEY` in the ignored `.env` file. An API key is only sent when
+this provider is explicitly selected.

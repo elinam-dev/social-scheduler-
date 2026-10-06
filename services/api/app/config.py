@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,3 +18,8 @@ class Settings(BaseSettings):
     object_storage_bucket: str = "videos"
     whisper_model: str = "small"
     hf_token: SecretStr | None = None
+    llm_provider: Literal["ollama", "openai-compatible"] = "ollama"
+    llm_model: str = "llama3.2"
+    ollama_base_url: str = "http://ollama:11434"
+    llm_api_base_url: str = "https://api.openai.com/v1"
+    llm_api_key: SecretStr | None = None
