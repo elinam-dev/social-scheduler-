@@ -25,6 +25,7 @@ class WordTimestamp:
     end_seconds: float
     text: str
     probability: float | None
+    speaker_id: str | None = None
 
 
 @dataclass(frozen=True)

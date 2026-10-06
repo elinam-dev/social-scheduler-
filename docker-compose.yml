@@ -91,7 +91,9 @@ services:
       CLIPPER_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-clipper-dev-password}
       CLIPPER_OBJECT_STORAGE_BUCKET: ${CLIPPER_OBJECT_STORAGE_BUCKET:-videos}
       CLIPPER_WHISPER_MODEL: ${CLIPPER_WHISPER_MODEL:-small}
+      CLIPPER_HF_TOKEN: ${CLIPPER_HF_TOKEN:-}
       HF_HOME: /models
+      PYANNOTE_CACHE: /models/pyannote
       REDIS_URL: redis://redis:6379/0
     volumes:
       - whisper_models:/models

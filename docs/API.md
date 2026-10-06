@@ -33,3 +33,8 @@ weights in a persistent Docker volume outside the repository. CPU uses int8
 inference. Audio longer than 30 minutes is split into temporary 30-minute chunks;
 segment and word timestamps are offset back to the original audio timeline. Only
 upload videos that you own or have permission to process.
+
+Speaker diarization uses pyannote locally. Before processing uploads, accept the
+Hugging Face terms for `pyannote/speaker-diarization-3.1` and its linked models,
+create a read token, and place it in `CLIPPER_HF_TOKEN` in your untracked `.env`
+file. Do not commit that token.

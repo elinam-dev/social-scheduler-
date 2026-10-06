@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base, Job, Project, Video
 from clipper_worker import tasks
+from clipper_worker.diarization import DiarizationResult, DiarizationTurn
 from clipper_worker.media import MediaMetadata
 from clipper_worker.transcription import (
     TranscriptionResult,
@@ -90,6 +91,13 @@ def test_process_video_updates_job_and_persists_metadata(
         ),
     )
     monkeypatch.setattr(tasks, "transcribe_audio", lambda _path: transcription_result)
+    diarization_result = DiarizationResult(
+        speakers=("speaker_1",),
+        turns=(DiarizationTurn(0, 3, "speaker_1"),),
+    )
+    monkeypatch.setattr(
+        tasks, "diarize_audio", lambda _path, **_kwargs: diarization_result
+    )
 
     result = tasks.process_video(str(video_id), str(job_id))
 
@@ -106,7 +114,7 @@ def test_process_video_updates_job_and_persists_metadata(
         assert stored_job.status == "succeeded"
         assert stored_job.progress == 100
     assert storage.uploads == {f"{project_id}/{video_id}/audio.wav": b"wav bytes"}
-    assert result == transcription_result
+    assert result.segments[0].words[0].speaker_id == "speaker_1"
 
 
 def test_failure_handler_marks_job_and_video_failed(

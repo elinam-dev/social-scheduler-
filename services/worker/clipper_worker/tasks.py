@@ -6,9 +6,11 @@ from pathlib import Path
 
 from rq.job import Job as RQJob
 
+from app.config import Settings
 from app.db.models import Job, Video
 from app.db.session import SessionLocal
 from app.storage import get_object_storage
+from clipper_worker.diarization import attach_speakers, diarize_audio
 from clipper_worker.media import AudioExtractionError, extract_audio, probe_media
 from clipper_worker.transcription import TranscriptionResult, transcribe_audio
 
@@ -48,6 +50,12 @@ def process_video(video_id: str, job_id: str) -> TranscriptionResult:
         with audio_path.open("rb") as audio_file:
             storage.upload_file(audio_file, audio_key, "audio/wav")
         transcription = transcribe_audio(audio_path)
+        hf_token = Settings().hf_token
+        diarization = diarize_audio(
+            audio_path,
+            hf_token=hf_token.get_secret_value() if hf_token else None,
+        )
+        transcription = attach_speakers(transcription, diarization)
 
     with SessionLocal() as session:
         video = session.get(Video, video_uuid)

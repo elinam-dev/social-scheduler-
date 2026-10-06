@@ -1,5 +1,8 @@
 boto3>=1.36,<2
 faster-whisper>=1.1,<2
+pyannote.audio>=3.3,<4
+torch==2.8.0
+torchaudio==2.8.0
 pydantic-settings>=2.7,<3
 psycopg[binary]>=3.2,<4
 redis>=5,<7

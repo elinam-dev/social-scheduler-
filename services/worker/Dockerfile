@@ -16,7 +16,10 @@ RUN mkdir /models && chown app:app /models
 WORKDIR /app
 
 COPY services/worker/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.8.0 torchaudio==2.8.0 \
+    && pip install --no-cache-dir -r /app/requirements.txt
 
 COPY services/api/app /app/app
 COPY --chown=app:app services/worker /app
