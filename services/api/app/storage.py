@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import BinaryIO
 
 import boto3
@@ -27,6 +28,9 @@ class ObjectStorage:
 
     def delete_file(self, object_key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=object_key)
+
+    def download_file(self, object_key: str, destination: str | Path) -> None:
+        self.client.download_file(self.bucket, object_key, str(destination))
 
     def _ensure_bucket(self) -> None:
         try:

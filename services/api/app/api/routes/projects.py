@@ -1,15 +1,21 @@
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import PureWindowsPath
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from redis.exceptions import RedisError
+from rq import Queue
+from rq.job import Callback
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.db.models import Project, Video
+from app.db.models import Job, Project, Video
 from app.db.session import get_session
+from app.queue import get_queue
+from app.schemas.job import JobRead, VideoUploadResponse
 from app.schemas.project import ProjectCreate, ProjectRead
 from app.schemas.video import VideoRead
 from app.storage import ObjectStorage, get_object_storage
@@ -44,7 +50,7 @@ def create_project(
 
 @router.post(
     "/projects/{project_id}/videos",
-    response_model=VideoRead,
+    response_model=VideoUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def upload_video(
@@ -52,7 +58,8 @@ def upload_video(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
     storage: ObjectStorage = Depends(get_object_storage),
-) -> Video:
+    queue: Queue = Depends(get_queue),
+) -> VideoUploadResponse:
     project = session.scalar(select(Project).where(Project.id == project_id))
     if project is None:
         raise HTTPException(
@@ -93,10 +100,20 @@ def upload_video(
         content_type=file.content_type,
         size_bytes=size_bytes,
     )
+    job_id = uuid.uuid4()
+    job = Job(
+        id=job_id,
+        project_id=project_id,
+        video=video,
+        job_type="process_video",
+        rq_job_id=str(job_id),
+    )
     try:
         session.add(video)
+        session.add(job)
         session.commit()
         session.refresh(video)
+        session.refresh(job)
     except SQLAlchemyError:
         session.rollback()
         try:
@@ -105,4 +122,26 @@ def upload_video(
             logger.exception("Failed to clean up uploaded object %s", object_key)
         raise
 
-    return video
+    try:
+        queue.enqueue(
+            "clipper_worker.tasks.process_video",
+            str(video.id),
+            str(job.id),
+            job_id=job.rq_job_id,
+            job_timeout=21600,
+            on_failure=Callback("clipper_worker.tasks.mark_job_failed"),
+        )
+    except RedisError as error:
+        job.status = "failed"
+        job.error_message = "Could not submit video processing job to Redis"
+        job.completed_at = datetime.now(UTC)
+        session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Video was uploaded, but its processing job could not be queued",
+        ) from error
+
+    return VideoUploadResponse(
+        video=VideoRead.model_validate(video),
+        job=JobRead.model_validate(job),
+    )

@@ -39,6 +39,7 @@ class Video(Base):
             name="ck_videos_status",
         ),
         Index("ix_videos_project_id", "project_id"),
+        Index("uq_videos_audio_object_key", "audio_object_key", unique=True),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -51,6 +52,7 @@ class Video(Base):
     )
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     object_key: Mapped[str] = mapped_column(String(1024), nullable=False, unique=True)
+    audio_object_key: Mapped[str | None] = mapped_column(String(1024))
     content_type: Mapped[str | None] = mapped_column(String(255))
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[str] = mapped_column(

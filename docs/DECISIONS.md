@@ -6,3 +6,5 @@
   could not be pulled anonymously from Docker Hub or Quay during setup. This archived
   image starts successfully, but its base image may not receive future security
   updates; replace it with a maintained MinIO image source before production use.
+- The API container applies Alembic migrations before serving requests; the worker
+  shares the API model package so both services use the same persisted schema.

@@ -15,6 +15,7 @@ WORKDIR /app
 COPY services/worker/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
+COPY services/api/app /app/app
 COPY --chown=app:app services/worker /app
 USER app
 

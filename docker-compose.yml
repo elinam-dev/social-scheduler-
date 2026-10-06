@@ -44,6 +44,62 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      CLIPPER_PROJECT_NAME: ${CLIPPER_PROJECT_NAME:-Local AI Video Clipper API}
+      CLIPPER_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-clipper}:${POSTGRES_PASSWORD:-clipper-dev-password}@postgres:5432/${POSTGRES_DB:-clipper}
+      CLIPPER_REDIS_URL: redis://redis:6379/0
+      CLIPPER_OBJECT_STORAGE_ENDPOINT_URL: http://minio:9000
+      CLIPPER_OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-clipper}
+      CLIPPER_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-clipper-dev-password}
+      CLIPPER_OBJECT_STORAGE_BUCKET: ${CLIPPER_OBJECT_STORAGE_BUCKET:-videos}
+    ports:
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    environment:
+      CLIPPER_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-clipper}:${POSTGRES_PASSWORD:-clipper-dev-password}@postgres:5432/${POSTGRES_DB:-clipper}
+      CLIPPER_REDIS_URL: redis://redis:6379/0
+      CLIPPER_OBJECT_STORAGE_ENDPOINT_URL: http://minio:9000
+      CLIPPER_OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-clipper}
+      CLIPPER_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-clipper-dev-password}
+      CLIPPER_OBJECT_STORAGE_BUCKET: ${CLIPPER_OBJECT_STORAGE_BUCKET:-videos}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
