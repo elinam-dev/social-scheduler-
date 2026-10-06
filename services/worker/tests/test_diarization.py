@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from clipper_worker import diarization
 from clipper_worker.diarization import (
     DiarizationError,
     DiarizationResult,
@@ -40,6 +41,8 @@ def test_diarize_audio_maps_pipeline_turns_and_speakers(
             pipeline_calls.append(path)
             return FakeAnnotation()
 
+    monkeypatch.setattr(diarization, "is_cuda_available", lambda: False)
+
     def load_pipeline(model_name: str, hf_token: str) -> FakePipeline:
         assert model_name == "pyannote/speaker-diarization-3.1"
         assert hf_token == "local-read-token"
@@ -55,6 +58,38 @@ def test_diarize_audio_maps_pipeline_turns_and_speakers(
         DiarizationTurn(0.1, 1.2, "SPEAKER_00"),
         DiarizationTurn(1.2, 2.4, "SPEAKER_01"),
     )
+
+
+def test_diarize_audio_uses_cuda_when_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audio_path = tmp_path / "audio.wav"
+    audio_path.write_bytes(b"wav")
+    selected_devices = []
+
+    class FakeAnnotation:
+        def itertracks(self, *, yield_label: bool):
+            assert yield_label is True
+            return iter(())
+
+    class FakePipeline:
+        def to(self, device: str) -> None:
+            selected_devices.append(device)
+
+        def __call__(self, _path: str) -> FakeAnnotation:
+            return FakeAnnotation()
+
+    monkeypatch.setattr(
+        diarization,
+        "_load_pipeline",
+        lambda *_args: FakePipeline(),
+    )
+    monkeypatch.setattr(diarization, "is_cuda_available", lambda: True)
+
+    result = diarization.diarize_audio(audio_path, hf_token="local-read-token")
+
+    assert selected_devices == ["cuda"]
+    assert result == DiarizationResult(speakers=(), turns=())
 
 
 def test_diarization_requires_token_before_loading_gated_model(

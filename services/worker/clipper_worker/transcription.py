@@ -44,6 +44,10 @@ class TranscriptionResult:
     segments: tuple[TranscriptionSegment, ...]
 
 
+def is_cuda_available() -> bool:
+    return ctranslate2.get_cuda_device_count() > 0
+
+
 def transcribe_audio(
     audio_path: str | Path,
     *,
@@ -59,7 +63,7 @@ def transcribe_audio(
         raise TranscriptionError("Chunk duration must be a positive number of seconds")
 
     model_name = model_name or Settings().whisper_model
-    if ctranslate2.get_cuda_device_count() > 0:
+    if is_cuda_available():
         device = "cuda"
         compute_type = "float16"
     else:

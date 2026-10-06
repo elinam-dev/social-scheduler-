@@ -1,0 +1,6 @@
+services:
+  worker:
+    build:
+      args:
+        CLIPPER_GPU: "1"
+    gpus: all

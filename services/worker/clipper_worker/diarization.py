@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from clipper_worker.transcription import TranscriptionResult
+from clipper_worker.transcription import TranscriptionResult, is_cuda_available
 
 
 class DiarizationError(RuntimeError):
@@ -40,6 +40,8 @@ def diarize_audio(
 
     try:
         pipeline = _load_pipeline(model_name, hf_token)
+        if is_cuda_available():
+            pipeline.to("cuda")
         annotation = pipeline(str(path))
         turns = tuple(
             DiarizationTurn(
@@ -52,7 +54,7 @@ def diarize_audio(
         )
     except DiarizationError:
         raise
-    except (OSError, RuntimeError, ValueError) as error:
+    except (ImportError, OSError, RuntimeError, ValueError) as error:
         raise DiarizationError(
             f"Speaker diarization failed for {path}: {error}"
         ) from error

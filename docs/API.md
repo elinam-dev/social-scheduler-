@@ -11,6 +11,14 @@ at `http://localhost:8000/docs`. Compose applies Alembic migrations before start
 the API. The worker consumes queued jobs from Redis and stores source videos and
 extracted audio in MinIO.
 
+The default worker image uses CPU-only PyTorch, and Whisper uses CPU int8 when no
+CUDA device is visible. For an NVIDIA GPU, install NVIDIA Container Toolkit
+(Docker Desktop GPU support on Windows), then start with
+`docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build`.
+The GPU override builds CUDA 12.8 PyTorch and exposes available GPUs to the
+worker; Whisper and pyannote automatically select CUDA when detected. Use the
+default Compose command on CPU-only machines.
+
 The Next.js web app lives in `apps/web`. Run `npm ci`, copy
 `apps/web/env.local.example` to `apps/web/.env.local` (change port 8001 to 8000 if
 using the default API port), then run `npm run dev` from `apps/web`. The web server
