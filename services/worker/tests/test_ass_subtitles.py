@@ -1,0 +1,71 @@
+import pytest
+
+from clipper_worker.ass_subtitles import build_ass_subtitles
+from clipper_worker.captions import CaptionChunk
+from clipper_worker.transcription import WordTimestamp
+
+
+def _chunk(start: float, end: float, text: str) -> CaptionChunk:
+    words = (WordTimestamp(start, end, text, 0.9),)
+    return CaptionChunk(start, end, text, words)
+
+
+def test_build_ass_subtitles_writes_header_and_timed_dialogue() -> None:
+    ass = build_ass_subtitles([_chunk(1.234, 2.345, "Hello, world!")])
+
+    assert "[Script Info]" in ass
+    assert "PlayResX: 1080\nPlayResY: 1920" in ass
+    assert "[V4+ Styles]" in ass
+    assert "[Events]" in ass
+    assert "Dialogue: 0,0:00:01.23,0:00:02.35,Default,,0,0,0,,Hello, world!" in ass
+
+
+def test_build_ass_subtitles_escapes_ass_controls_and_newlines() -> None:
+    ass = build_ass_subtitles([_chunk(0, 1, "Keep {this}\\\\ safe\nNext")])
+
+    expected_text = r"Keep \{this\}" + "\\" * 4 + r" safe\NNext"
+    assert expected_text in ass
+
+
+def test_build_ass_subtitles_rebases_and_clips_caption_times() -> None:
+    ass = build_ass_subtitles(
+        [_chunk(1, 3, "partly visible"), _chunk(4, 5, "outside")],
+        clip_start_seconds=2,
+        clip_end_seconds=4,
+        play_res_x=1080,
+        play_res_y=1920,
+    )
+
+    assert "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,partly visible" in ass
+    assert "outside" not in ass
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"play_res_x": 0}, "resolution"),
+        ({"clip_start_seconds": -1}, "start time"),
+        ({"clip_start_seconds": float("nan")}, "start time"),
+        ({"clip_end_seconds": 1, "clip_start_seconds": 1}, "after its start"),
+    ],
+)
+def test_build_ass_subtitles_rejects_invalid_options(
+    kwargs: dict[str, int | float], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_ass_subtitles([], **kwargs)
+
+
+def test_build_ass_subtitles_rejects_invalid_caption_range() -> None:
+    with pytest.raises(ValueError, match="finite positive time ranges"):
+        build_ass_subtitles([_chunk(2, 1, "bad")])
+
+
+def test_build_ass_subtitles_returns_valid_empty_events_section() -> None:
+    ass = build_ass_subtitles([])
+
+    assert ass.endswith(
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
+        "Effect, Text\n"
+    )

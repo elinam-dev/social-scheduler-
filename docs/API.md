@@ -82,6 +82,8 @@ offers 9:16 (1080x1920), 1:1 (1080x1080), and 16:9 (1920x1080) exports.
 Caption chunks are generated from word timestamps, splitting at sentence ends,
 long pauses, speaker changes, and configurable word or duration limits. Each
 chunk retains its original timed words for subtitle rendering and highlighting.
+Chunks can be serialized to ASS subtitles with configurable play resolution and
+clip-time rebasing; subtitle text is escaped to prevent accidental ASS tags.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
