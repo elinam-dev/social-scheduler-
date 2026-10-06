@@ -11,6 +11,12 @@ at `http://localhost:8000/docs`. Compose applies Alembic migrations before start
 the API. The worker consumes queued jobs from Redis and stores source videos and
 extracted audio in MinIO.
 
+The Next.js web app lives in `apps/web`. Run `npm ci`, copy
+`apps/web/env.local.example` to `apps/web/.env.local` (change port 8001 to 8000 if
+using the default API port), then run `npm run dev` from `apps/web`. The web server
+proxies `/backend-api/*` to the configured API address so browser requests remain
+same-origin. Its typed endpoint client is in `apps/web/src/lib/api.ts`.
+
 Create a project, upload a video, and poll its processing job:
 
 ```sh
