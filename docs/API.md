@@ -59,6 +59,11 @@ and are intended to be tuned against the evaluation set.
 Each reviewed clip can also receive an 80-character title and 120-character
 on-screen hook, both required to remain grounded in the transcript.
 
+Clip rendering uses FFmpeg timestamp trim filters with video re-encoding rather
+than keyframe-only stream copying. The video filter selects source frames within
+the requested interval (so boundaries resolve to actual frame timestamps), while
+audio is trimmed to the requested sample times.
+
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
 Compose service and download the configured model with:
