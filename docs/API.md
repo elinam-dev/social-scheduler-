@@ -44,6 +44,12 @@ it with `GET /videos/{video_id}/transcript`; the response contains the detected
 language and confidence, duration, segments, word timestamps and confidence, and
 speaker IDs. The endpoint returns `409` while transcription is not yet available.
 
+The worker groups transcript words into sentences at punctuation or pauses longer
+than one second, and detects audio silences with FFmpeg (default threshold `-35
+dB` for at least `0.5` seconds). Candidate generation enumerates contiguous
+sentence ranges from 30 to 90 seconds. Proposed clip times snap to the closest
+non-empty sentence-aligned range.
+
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
 Compose service and download the configured model with:
