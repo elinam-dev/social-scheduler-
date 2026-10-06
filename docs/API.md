@@ -85,7 +85,9 @@ chunk retains its original timed words for subtitle rendering and highlighting.
 Chunks can be serialized to ASS subtitles with configurable play resolution and
 clip-time rebasing; subtitle text is escaped to prevent accidental ASS tags.
 Built-in ASS styles include default, minimal, and word-by-word karaoke
-highlighting driven by the original word timing.
+highlighting driven by the original word timing. Callers can optionally pass
+keywords for case-insensitive color emphasis and an explicit keyword-to-emoji
+mapping; no emoji are inserted by default.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional

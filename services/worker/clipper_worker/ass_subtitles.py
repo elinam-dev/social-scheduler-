@@ -1,5 +1,6 @@
 import math
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Mapping
 
 from clipper_worker.caption_styles import DEFAULT_CAPTION_STYLE, CaptionStyle
 from clipper_worker.captions import CaptionChunk
@@ -14,6 +15,8 @@ def build_ass_subtitles(
     clip_start_seconds: float = 0,
     clip_end_seconds: float | None = None,
     style: CaptionStyle = DEFAULT_CAPTION_STYLE,
+    emphasized_keywords: Iterable[str] = (),
+    emoji_by_keyword: Mapping[str, str] | None = None,
 ) -> str:
     if play_res_x <= 0 or play_res_y <= 0:
         raise ValueError("ASS play resolution must be positive")
@@ -24,6 +27,22 @@ def build_ass_subtitles(
     ):
         raise ValueError("Clip end time must be finite and after its start")
     _validate_style(style)
+    normalized_keywords = {
+        _normalize_keyword(keyword) for keyword in emphasized_keywords
+    }
+    normalized_keywords.discard("")
+    normalized_emoji = (
+        {
+            _normalize_keyword(keyword): emoji
+            for keyword, emoji in emoji_by_keyword.items()
+        }
+        if emoji_by_keyword is not None
+        else {}
+    )
+    if any(not keyword for keyword in normalized_emoji):
+        raise ValueError("Emoji mapping keywords must not be blank")
+    if any(not emoji.strip() for emoji in normalized_emoji.values()):
+        raise ValueError("Emoji mapping values must not be blank")
 
     events: list[str] = []
     for chunk in chunks:
@@ -51,9 +70,19 @@ def build_ass_subtitles(
         if not visible_words:
             continue
         if style.highlight_words:
-            text = _karaoke_text(visible_words, clip_start_seconds, clip_end_seconds)
+            text = _karaoke_text(
+                visible_words,
+                clip_start_seconds,
+                clip_end_seconds,
+                style,
+                normalized_keywords,
+                normalized_emoji,
+            )
         else:
-            text = " ".join(_escape_ass_text(word.text) for word in visible_words)
+            text = " ".join(
+                _format_word(word.text, normalized_keywords, normalized_emoji, style)
+                for word in visible_words
+            )
         event_start = max(start, visible_words[0].start_seconds) - clip_start_seconds
         events.append(
             f"Dialogue: 0,{_format_ass_time(event_start)},"
@@ -111,6 +140,9 @@ def _karaoke_text(
     words: tuple[WordTimestamp, ...],
     clip_start_seconds: float,
     clip_end_seconds: float | None,
+    style: CaptionStyle,
+    emphasized_keywords: set[str],
+    emoji_by_keyword: Mapping[str, str],
 ) -> str:
     parts: list[str] = []
     for index, word in enumerate(words):
@@ -126,8 +158,37 @@ def _karaoke_text(
         if clip_end_seconds is not None:
             end = min(end, clip_end_seconds)
         duration = max(0, round((end - start) * 100))
-        parts.append(f"{{\\k{duration}}}{_escape_ass_text(word.text)}")
+        parts.append(
+            f"{{\\k{duration}}}"
+            f"{_format_word(word.text, emphasized_keywords, emoji_by_keyword, style)}"
+        )
     return " ".join(parts)
+
+
+def _format_word(
+    text: str,
+    emphasized_keywords: set[str],
+    emoji_by_keyword: Mapping[str, str],
+    style: CaptionStyle,
+) -> str:
+    escaped = _escape_ass_text(text)
+    keyword = _normalize_keyword(text)
+    if keyword not in emphasized_keywords and keyword not in emoji_by_keyword:
+        return escaped
+
+    emphasis = (
+        f"{{\\c{style.emphasis_colour}&}}{escaped}{{\\c}}"
+        if keyword in emphasized_keywords
+        else escaped
+    )
+    emoji = emoji_by_keyword.get(keyword)
+    if emoji is not None:
+        emphasis += f" {_escape_ass_text(emoji)}"
+    return emphasis
+
+
+def _normalize_keyword(text: str) -> str:
+    return re.sub(r"^[^\w]+|[^\w]+$", "", text.strip(), flags=re.UNICODE).casefold()
 
 
 def _validate_style(style: CaptionStyle) -> None:
@@ -138,6 +199,7 @@ def _validate_style(style: CaptionStyle) -> None:
         style.secondary_colour,
         style.outline_colour,
         style.back_colour,
+        style.emphasis_colour,
     )
     if any(
         not value or any(character in value for character in ",\r\n")

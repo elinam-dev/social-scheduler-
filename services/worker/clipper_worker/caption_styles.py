@@ -19,6 +19,7 @@ class CaptionStyle:
     margin_right: int
     margin_vertical: int
     highlight_words: bool = False
+    emphasis_colour: str = "&H0000FFFF"
 
 
 DEFAULT_CAPTION_STYLE = CaptionStyle(

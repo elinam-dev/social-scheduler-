@@ -66,6 +66,61 @@ def test_build_ass_subtitles_truncates_karaoke_at_clip_boundaries() -> None:
     ) in ass
 
 
+def test_build_ass_subtitles_emphasizes_keywords_case_insensitively() -> None:
+    words = (
+        WordTimestamp(0, 0.2, "This", 0.9),
+        WordTimestamp(0.2, 0.4, "is", 0.9),
+        WordTimestamp(0.4, 0.8, "huge!", 0.9),
+    )
+    ass = build_ass_subtitles(
+        [CaptionChunk(0, 0.8, "This is huge!", words)],
+        emphasized_keywords=["huge"],
+    )
+
+    assert r"This is {\c&H0000FFFF&}huge!{\c}" in ass
+
+
+def test_build_ass_subtitles_adds_only_caller_mapped_emoji() -> None:
+    words = (
+        WordTimestamp(0, 0.4, "Great,", 0.9),
+        WordTimestamp(0.5, 0.9, "work!", 0.9),
+    )
+    ass = build_ass_subtitles(
+        [CaptionChunk(0, 0.9, "Great, work!", words)],
+        emoji_by_keyword={"great": "🔥"},
+    )
+
+    assert "Great, 🔥 work!" in ass
+    assert r"{\c&H0000FFFF&}" not in ass
+
+
+def test_build_ass_subtitles_combines_keyword_emphasis_and_karaoke() -> None:
+    words = (WordTimestamp(0, 0.5, "Amazing!", 0.9),)
+    chunk = CaptionChunk(0, 0.5, "Amazing!", words)
+
+    ass = build_ass_subtitles(
+        [chunk],
+        style=CAPTION_STYLE_PRESETS["word-highlight"],
+        emphasized_keywords=["amazing"],
+    )
+
+    assert r"{\k50}{\c&H0000FFFF&}Amazing!{\c}" in ass
+
+
+@pytest.mark.parametrize(
+    ("keywords", "emoji", "message"),
+    [
+        ((), {" ": "🔥"}, "keywords must not be blank"),
+        ((), {"great": " "}, "values must not be blank"),
+    ],
+)
+def test_build_ass_subtitles_rejects_invalid_emoji_mapping(
+    keywords: tuple[str, ...], emoji: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        build_ass_subtitles([], emphasized_keywords=keywords, emoji_by_keyword=emoji)
+
+
 def test_build_ass_subtitles_rejects_unsafe_style_fields() -> None:
     unsafe_style = replace(CAPTION_STYLE_PRESETS["default"], font_name="Arial,Other")
 
