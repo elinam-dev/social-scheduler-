@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir \
         torch==2.8.0 torchaudio==2.8.0 \
     && pip install --no-cache-dir -r /app/requirements.txt
 
+COPY services/worker/requirements-vision.txt /app/requirements-vision.txt
+RUN pip install --no-cache-dir --no-deps -r /app/requirements-vision.txt
+
 COPY services/api/app /app/app
 COPY --chown=app:app services/worker /app
 USER app

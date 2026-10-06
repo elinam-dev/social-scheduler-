@@ -63,6 +63,10 @@ Clip rendering uses FFmpeg timestamp trim filters with video re-encoding rather
 than keyframe-only stream copying. The video filter selects source frames within
 the requested interval (so boundaries resolve to actual frame timestamps), while
 audio is trimmed to the requested sample times.
+Face detection uses MediaPipe locally and returns normalized face boxes with
+frame timestamps and confidence scores. Frames are sampled at a configurable
+interval (one second by default); no external model download or cloud service is
+required.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
