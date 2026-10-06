@@ -23,3 +23,20 @@ Clip times are seconds from the beginning of the source video. The manifest
 schema is in `manifest.schema.json`. Video files are excluded from Git; do not
 commit source videos or other media. Evaluation requires locally available
 videos and at least one hand-labeled clip per video.
+
+## Evaluating candidate scores
+
+Record the worker's candidate boundaries and normalized signal scores in
+`predictions.json`, following `predictions.schema.json`. Use the same video IDs
+as the manifest. The evaluator ranks and deduplicates candidates per video,
+then reports recall@N against labeled clips using temporal intersection-over-
+union (IoU). It searches linear score weights in increments of 0.1 by default
+and includes the current production weights as a baseline:
+
+```sh
+python -m eval.evaluate --manifest eval/manifest.json \
+  --predictions eval/predictions.json --top-n 5 --min-iou 0.5
+```
+
+Tune against completed annotations only; empty placeholders are ignored. The
+evaluation output is diagnostic and does not change runtime weights by itself.

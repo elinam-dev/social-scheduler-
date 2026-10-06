@@ -8,14 +8,15 @@ install-dev:
 	$(PIP) install -r services/api/requirements-dev.txt -r services/worker/requirements.txt pre-commit
 
 lint:
-	ruff check services/api services/worker
+	ruff check services/api services/worker eval
 
 format-check:
-	ruff format --check services/api services/worker
+	ruff format --check services/api services/worker eval
 
 test:
 	cd services/api && pytest
 	cd services/worker && pytest
+	pytest eval/tests
 
 db-upgrade:
 	cd services/api && alembic upgrade head

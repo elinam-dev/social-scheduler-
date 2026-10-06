@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Clipper evaluation candidate scores",
+  "type": "object",
+  "required": [
+    "version",
+    "videos"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "videos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "candidates"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "start_seconds",
+                "end_seconds",
+                "scores"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "start_seconds": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "end_seconds": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "scores": {
+                  "type": "object",
+                  "required": [
+                    "llm_score",
+                    "audio_energy",
+                    "speech_rate",
+                    "laughter"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "llm_score": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "audio_energy": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "speech_rate": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "laughter": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
