@@ -13,3 +13,7 @@
   peaks at 160 words per minute and declines linearly to zero at 40 or 280 WPM;
   audio energy maps -60 to -10 dBFS onto 0 to 1. These heuristics are starting
   values for evaluation and tuning in step 27, not a claim of universal clip quality.
+- Speaker-to-face matching uses temporal co-occurrence between diarization turns
+  and sampled face detections, with greedy one-to-one speaker/track assignment.
+  It does not analyze lip motion and cannot identify the active speaker reliably
+  when multiple people remain visible; the result is a reviewable heuristic.
