@@ -48,7 +48,10 @@ The worker groups transcript words into sentences at punctuation or pauses longe
 than one second, and detects audio silences with FFmpeg (default threshold `-35
 dB` for at least `0.5` seconds). Candidate generation enumerates contiguous
 sentence ranges from 30 to 90 seconds. Proposed clip times snap to the closest
-non-empty sentence-aligned range.
+non-empty sentence-aligned range. Candidate ranking averages the four review
+scores; highly overlapping candidates are deduplicated using overlap divided by
+the shorter candidate duration (default threshold `0.7`) before keeping the
+top ten.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
