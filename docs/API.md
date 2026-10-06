@@ -89,7 +89,9 @@ highlighting driven by the original word timing. Callers can optionally pass
 keywords for case-insensitive color emphasis and an explicit keyword-to-emoji
 mapping; no emoji are inserted by default. Renderers accept an ASS subtitle path
 to burn captions into regular trims, face-following exports, or either fallback
-layout.
+layout. Custom styles use strict version-1 JSON; the checked-in
+`services/worker/caption-templates/word-highlight.json` is an example and can be
+loaded with the worker's caption style loader.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional

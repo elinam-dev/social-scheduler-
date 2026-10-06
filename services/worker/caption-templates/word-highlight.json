@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "WordHighlight",
+  "font_name": "Arial",
+  "font_size": 64,
+  "primary_colour": "&H00FFFFFF",
+  "secondary_colour": "&H0000FFFF",
+  "outline_colour": "&H00000000",
+  "back_colour": "&H80000000",
+  "emphasis_colour": "&H0000FFFF",
+  "bold": true,
+  "italic": false,
+  "outline": 3,
+  "shadow": 1,
+  "alignment": 2,
+  "margin_left": 60,
+  "margin_right": 60,
+  "margin_vertical": 120,
+  "highlight_words": true
+}
