@@ -30,4 +30,6 @@ dimensions, frame rate, and the MinIO key for extracted 16 kHz mono WAV audio.
 Transcription uses the configurable `CLIPPER_WHISPER_MODEL` setting (default
 `small`); faster-whisper downloads the selected model on first use and caches its
 weights in a persistent Docker volume outside the repository. CPU uses int8
-inference. Only upload videos that you own or have permission to process.
+inference. Audio longer than 30 minutes is split into temporary 30-minute chunks;
+segment and word timestamps are offset back to the original audio timeline. Only
+upload videos that you own or have permission to process.

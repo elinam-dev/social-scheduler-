@@ -1,3 +1,5 @@
+import subprocess
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,11 +9,19 @@ from clipper_worker import transcription
 from clipper_worker.transcription import TranscriptionError, transcribe_audio
 
 
+def _write_wav(path: Path, duration_seconds: float, sample_rate: int = 16000) -> None:
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        audio.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
+
+
 def test_transcribe_audio_uses_cpu_int8_without_cuda(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     audio_path = tmp_path / "audio.wav"
-    audio_path.write_bytes(b"wav")
+    _write_wav(audio_path, 2.5)
     model_options = {}
     transcribe_options = {}
 
@@ -104,7 +114,7 @@ def test_transcribe_audio_uses_cuda_float16_when_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     audio_path = tmp_path / "audio.wav"
-    audio_path.write_bytes(b"wav")
+    _write_wav(audio_path, 2.5)
     model_options = {}
 
     class FakeModel:
@@ -130,7 +140,7 @@ def test_transcribe_audio_handles_segments_without_word_alignment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     audio_path = tmp_path / "audio.wav"
-    audio_path.write_bytes(b"wav")
+    _write_wav(audio_path, 1)
 
     class FakeModel:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -154,6 +164,92 @@ def test_transcribe_audio_handles_segments_without_word_alignment(
     assert result.segments[0].words == ()
 
 
+def test_transcribe_audio_splits_long_wav_and_offsets_all_timestamps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audio_path = tmp_path / "long-audio.wav"
+    _write_wav(audio_path, 5, sample_rate=10)
+    model_calls: list[Path] = []
+    ffmpeg_commands: list[list[str]] = []
+
+    class FakeModel:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def transcribe(self, path: str, **_kwargs: object):
+            chunk_path = Path(path)
+            model_calls.append(chunk_path)
+            index = (
+                int(chunk_path.stem.split("-")[-1]) if chunk_path != audio_path else 0
+            )
+            with wave.open(str(chunk_path), "rb") as chunk:
+                chunk_duration = chunk.getnframes() / chunk.getframerate()
+            probability = 0.8 + index * 0.05
+            return iter(
+                [
+                    SimpleNamespace(
+                        start=0.0,
+                        end=chunk_duration,
+                        text=f" chunk {index} ",
+                        words=[
+                            SimpleNamespace(
+                                start=0.25,
+                                end=min(0.75, chunk_duration),
+                                word=f" {index}",
+                                probability=probability,
+                            )
+                        ],
+                    )
+                ]
+            ), SimpleNamespace(
+                language="en",
+                language_probability=probability,
+                duration=chunk_duration,
+            )
+
+    def fake_ffmpeg(command: list[str], **kwargs: object) -> SimpleNamespace:
+        ffmpeg_commands.append(command)
+        output_path = Path(command[-1])
+        length = float(command[command.index("-t") + 1])
+        _write_wav(output_path, length, sample_rate=10)
+        return SimpleNamespace(stdout="", stderr="")
+
+    monkeypatch.setattr(transcription.ctranslate2, "get_cuda_device_count", lambda: 0)
+    monkeypatch.setattr(transcription, "WhisperModel", FakeModel)
+    monkeypatch.setattr(subprocess, "run", fake_ffmpeg)
+
+    result = transcribe_audio(
+        audio_path,
+        model_name="tiny",
+        chunk_duration_seconds=2,
+    )
+
+    assert len(ffmpeg_commands) == 3
+    assert len(model_calls) == 3
+    assert all(
+        path.parent.name.startswith("clipper-transcribe-") for path in model_calls
+    )
+    assert [segment.start_seconds for segment in result.segments] == [0, 2, 4]
+    assert [segment.end_seconds for segment in result.segments] == [2, 4, 5]
+    assert [segment.text for segment in result.segments] == [
+        "chunk 0",
+        "chunk 1",
+        "chunk 2",
+    ]
+    assert [segment.words[0].start_seconds for segment in result.segments] == [
+        0.25,
+        2.25,
+        4.25,
+    ]
+    assert [segment.words[0].end_seconds for segment in result.segments] == [
+        0.75,
+        2.75,
+        4.75,
+    ]
+    assert result.duration_seconds == 5
+    assert result.language_probability == pytest.approx(0.84)
+
+
 def test_transcribe_audio_reports_missing_file(tmp_path: Path) -> None:
     with pytest.raises(TranscriptionError, match="Audio file does not exist"):
         transcribe_audio(tmp_path / "missing.wav", model_name="tiny")
@@ -163,7 +259,7 @@ def test_transcribe_audio_surfaces_model_load_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     audio_path = tmp_path / "audio.wav"
-    audio_path.write_bytes(b"wav")
+    _write_wav(audio_path, 1)
     monkeypatch.setattr(transcription.ctranslate2, "get_cuda_device_count", lambda: 0)
 
     def fail_model(*_args: object, **_kwargs: object) -> None:
