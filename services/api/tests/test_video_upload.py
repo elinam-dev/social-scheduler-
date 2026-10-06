@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes.projects import get_object_storage, get_queue
-from app.db import Base, Job, Video
+from app.db import Base, Job, Project, Video
 from app.db.session import get_session
 from app.main import app
 
@@ -194,3 +194,48 @@ def test_database_failure_cleans_up_uploaded_object(tmp_path) -> None:
     assert response.status_code == 500
     assert len(storage.uploads) == 1
     assert storage.deleted_keys == [storage.uploads[0][0]]
+
+
+def test_job_event_stream_emits_terminal_job_and_rejects_unknown_job(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'job-events.db'}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with session_factory() as session:
+        project = Project(name="Interview")
+        job = Job(
+            project=project,
+            job_type="process_video",
+            status="succeeded",
+            progress=100,
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    def override_session():
+        with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_session
+
+    async def request_events():
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            available = await client.get(f"/jobs/{job_id}/events")
+            missing = await client.get(f"/jobs/{uuid.uuid4()}/events")
+        return available, missing
+
+    try:
+        response, missing = anyio.run(request_events)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.text.startswith("data: ")
+    event = response.text.removeprefix("data: ").split("\n\n", 1)[0]
+    assert '"status":"succeeded"' in event
+    assert '"progress":100' in event
+    assert missing.status_code == 404

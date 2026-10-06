@@ -17,7 +17,9 @@ using the default API port), then run `npm run dev` from `apps/web`. The web ser
 proxies `/backend-api/*` to the configured API address so browser requests remain
 same-origin. Its typed endpoint client is in `apps/web/src/lib/api.ts`.
 
-Create a project, upload a video, and poll its processing job:
+The web app is available at `http://localhost:3000`; create a project and upload
+a video there to follow upload-byte progress and live processing updates.
+Alternatively, create a project and upload a video through the API:
 
 ```sh
 curl -X POST http://localhost:8000/projects \
@@ -33,6 +35,9 @@ curl http://localhost:8000/jobs/JOB_ID
 The upload response includes both the saved video and its queued job. Job states
 are `queued`, `running`, `succeeded`, and `failed`; processing records duration,
 dimensions, frame rate, and the MinIO key for extracted 16 kHz mono WAV audio.
+The web app receives browser upload progress and then subscribes to
+`GET /jobs/{job_id}/events`, a server-sent event stream that emits job updates
+until processing succeeds or fails. Clients can also poll `GET /jobs/{job_id}`.
 Transcription uses the configurable `CLIPPER_WHISPER_MODEL` setting (default
 `small`); faster-whisper downloads the selected model on first use and caches its
 weights in a persistent Docker volume outside the repository. CPU uses int8

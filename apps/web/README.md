@@ -1,7 +1,8 @@
 # Local Clip Studio web app
 
-This Next.js App Router app provides the local web interface and a typed client
-for the FastAPI project, upload, job, and transcript endpoints.
+This Next.js App Router app provides a local video upload page and a typed client
+for the FastAPI project, upload, job, and transcript endpoints. Upload progress
+is shown in the browser; processing updates arrive over server-sent events.
 
 ## Run locally
 
@@ -16,7 +17,8 @@ npm run dev
 
 Open `http://localhost:3000`. Requests to `/backend-api/*` are proxied by Next.js
 to `CLIPPER_API_SERVER_URL`, avoiding browser CORS configuration. The API client
-is in `src/lib/api.ts`.
+is in `src/lib/api.ts`. The upload page creates a project, uploads its video,
+then listens to the job event stream until processing succeeds or fails.
 
 Check the app with:
 

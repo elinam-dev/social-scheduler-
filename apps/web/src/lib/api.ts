@@ -75,21 +75,31 @@ const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "/backend-api").repl
   "",
 );
 
+function parsePayload(
+  responseText: string,
+  status: number,
+  ok: boolean,
+): unknown {
+  if (!responseText) {
+    if (!ok) {
+      return undefined;
+    }
+    throw new ApiError("The API returned an empty response.", status);
+  }
+  try {
+    return JSON.parse(responseText) as unknown;
+  } catch {
+    if (!ok) {
+      throw new ApiError(responseText, status);
+    }
+    throw new ApiError("The API returned an invalid JSON response.", status);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, init);
   const responseText = await response.text();
-  let payload: unknown;
-
-  if (responseText) {
-    try {
-      payload = JSON.parse(responseText) as unknown;
-    } catch {
-      if (!response.ok) {
-        throw new ApiError(responseText, response.status);
-      }
-      throw new ApiError("The API returned an invalid JSON response.", response.status);
-    }
-  }
+  const payload = parsePayload(responseText, response.status, response.ok);
 
   if (!response.ok) {
     throw new ApiError(errorMessage(payload), response.status);
@@ -126,13 +136,55 @@ export const api = {
     });
   },
 
-  uploadVideo(projectId: string, file: File): Promise<VideoUploadResponse> {
-    const formData = new FormData();
-    formData.append("file", file);
-    return request<VideoUploadResponse>(
-      `/projects/${encodeURIComponent(projectId)}/videos`,
-      { method: "POST", body: formData },
-    );
+  uploadVideo(
+    projectId: string,
+    file: File,
+    onProgress: (progress: number) => void,
+  ): Promise<VideoUploadResponse> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      formData.append("file", file);
+
+      xhr.open(
+        "POST",
+        `${apiBaseUrl}/projects/${encodeURIComponent(projectId)}/videos`,
+      );
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) {
+          onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      });
+      xhr.addEventListener("load", () => {
+        let payload: unknown;
+        try {
+          payload = parsePayload(
+            xhr.responseText,
+            xhr.status,
+            xhr.status >= 200 && xhr.status < 300,
+          );
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new ApiError(errorMessage(payload), xhr.status));
+          return;
+        }
+        resolve(payload as VideoUploadResponse);
+      });
+      xhr.addEventListener("error", () => {
+        reject(new ApiError("Could not connect to the local API.", 0));
+      });
+      xhr.addEventListener("abort", () => {
+        reject(new ApiError("The upload was cancelled.", 0));
+      });
+      xhr.send(formData);
+    });
+  },
+
+  jobEventsUrl(jobId: string): string {
+    return `${apiBaseUrl}/jobs/${encodeURIComponent(jobId)}/events`;
   },
 
   getJob(jobId: string): Promise<JobRead> {
