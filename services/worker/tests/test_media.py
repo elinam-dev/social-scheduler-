@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from clipper_worker.media import MediaProbeError, probe_media
+from clipper_worker.media import (
+    AudioExtractionError,
+    MediaProbeError,
+    extract_audio,
+    probe_media,
+)
 
 
 def test_probe_media_extracts_video_metadata(
@@ -81,3 +86,64 @@ def test_probe_media_reports_ffprobe_process_failure(
 
     with pytest.raises(MediaProbeError, match="invalid data"):
         probe_media(video_path)
+
+
+def test_extract_audio_creates_mono_16khz_pcm_wav(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video_path = tmp_path / "source video.mp4"
+    video_path.write_bytes(b"video")
+    audio_path = tmp_path / "audio" / "source.wav"
+    captured_command: list[str] = []
+
+    def fake_run(command: list[str], **kwargs: object) -> SimpleNamespace:
+        captured_command.extend(command)
+        assert kwargs["check"] is True
+        assert kwargs["timeout"] == 3600
+        Path(command[-1]).write_bytes(b"RIFF test audio")
+        return SimpleNamespace(stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = extract_audio(video_path, audio_path)
+
+    assert result == audio_path
+    assert audio_path.read_bytes() == b"RIFF test audio"
+    assert captured_command[captured_command.index("-ac") + 1] == "1"
+    assert captured_command[captured_command.index("-ar") + 1] == "16000"
+    assert captured_command[captured_command.index("-c:a") + 1] == "pcm_s16le"
+    assert str(video_path) in captured_command
+
+
+def test_extract_audio_reports_ffmpeg_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video_path = tmp_path / "no-audio.mp4"
+    video_path.write_bytes(b"video")
+
+    def failed_run(command: list[str], **kwargs: object) -> None:
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=command,
+            stderr="no audio stream",
+        )
+
+    monkeypatch.setattr(subprocess, "run", failed_run)
+
+    with pytest.raises(AudioExtractionError, match="no audio stream"):
+        extract_audio(video_path, tmp_path / "audio.wav")
+
+
+def test_extract_audio_requires_wav_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"video")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("FFmpeg should not be called"),
+    )
+
+    with pytest.raises(AudioExtractionError, match="\\.wav extension"):
+        extract_audio(video_path, tmp_path / "audio.mp3")

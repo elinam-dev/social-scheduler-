@@ -10,6 +10,10 @@ class MediaProbeError(RuntimeError):
     pass
 
 
+class AudioExtractionError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class MediaMetadata:
     duration_seconds: float
@@ -61,6 +65,69 @@ def probe_media(
         raise MediaProbeError(
             f"FFprobe returned invalid media metadata for {path}"
         ) from error
+
+
+def extract_audio(
+    input_path: str | Path,
+    output_path: str | Path,
+    ffmpeg_binary: str = "ffmpeg",
+) -> Path:
+    source = Path(input_path)
+    destination = Path(output_path)
+    if not source.is_file():
+        raise AudioExtractionError(f"Video file does not exist: {source}")
+    if destination.suffix.lower() != ".wav":
+        raise AudioExtractionError("Audio output path must have a .wav extension")
+    if source.resolve() == destination.resolve():
+        raise AudioExtractionError("Audio output path must differ from the video input")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg_binary,
+        "-v",
+        "error",
+        "-nostdin",
+        "-y",
+        "-i",
+        str(source),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        str(destination),
+    ]
+    try:
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+    except FileNotFoundError as error:
+        raise AudioExtractionError(
+            f"FFmpeg executable not found: {ffmpeg_binary}"
+        ) from error
+    except subprocess.TimeoutExpired as error:
+        raise AudioExtractionError(
+            f"FFmpeg timed out extracting audio from {source}"
+        ) from error
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr.strip() or "FFmpeg could not extract an audio stream"
+        raise AudioExtractionError(
+            f"FFmpeg audio extraction failed for {source}: {detail}"
+        ) from error
+
+    if not destination.is_file():
+        raise AudioExtractionError(
+            f"FFmpeg did not create the audio file: {destination}"
+        )
+    return destination
 
 
 def _parse_probe_payload(payload: Any) -> MediaMetadata:
