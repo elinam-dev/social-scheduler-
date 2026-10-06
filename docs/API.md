@@ -48,10 +48,14 @@ The worker groups transcript words into sentences at punctuation or pauses longe
 than one second, and detects audio silences with FFmpeg (default threshold `-35
 dB` for at least `0.5` seconds). Candidate generation enumerates contiguous
 sentence ranges from 30 to 90 seconds. Proposed clip times snap to the closest
-non-empty sentence-aligned range. Candidate ranking averages the four review
-scores; highly overlapping candidates are deduplicated using overlap divided by
-the shorter candidate duration (default threshold `0.7`) before keeping the
-top ten.
+non-empty sentence-aligned range. Preliminary candidate ranking averages the
+four review scores; final ranking uses the combined multi-signal score. Highly
+overlapping candidates are deduplicated using overlap divided by the shorter
+candidate duration (default threshold `0.7`) before keeping the top ten. Final
+candidate scores combine the mean LLM review, normalized PCM audio
+energy, speech-rate fit, and explicit laughter markers in the transcript. The
+initial weights and normalization ranges are recorded in [DECISIONS.md](./DECISIONS.md)
+and are intended to be tuned against the evaluation set.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional

@@ -2,7 +2,11 @@ import pytest
 
 from clipper_worker.candidate_review import CandidateEvaluation
 from clipper_worker.candidates import CandidateWindow
-from clipper_worker.ranking import rank_and_deduplicate_candidates
+from clipper_worker.ranking import (
+    rank_and_deduplicate_candidates,
+    rank_scored_candidates,
+)
+from clipper_worker.scoring import CandidateScore
 
 
 def _candidate(start: float, end: float, text: str) -> CandidateWindow:
@@ -88,3 +92,23 @@ def test_rank_and_deduplicate_rejects_invalid_candidate_boundaries() -> None:
         rank_and_deduplicate_candidates(
             [(_candidate(10, 10, "Empty"), _evaluation(0.9))]
         )
+
+
+def test_rank_scored_candidates_uses_multi_signal_combined_score() -> None:
+    candidates = [
+        (
+            _candidate(0, 10, "High LLM only"),
+            _evaluation(0.95),
+            CandidateScore(0.95, 0.1, 0.1, 60, 0, 0.6),
+        ),
+        (
+            _candidate(20, 30, "Higher combined"),
+            _evaluation(0.6),
+            CandidateScore(0.6, 0.9, 0.8, 160, 0.5, 0.85),
+        ),
+    ]
+
+    ranked = rank_scored_candidates(candidates, top_n=1)
+
+    assert ranked[0].candidate.text == "Higher combined"
+    assert ranked[0].score == 0.85

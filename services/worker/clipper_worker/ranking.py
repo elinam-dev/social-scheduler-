@@ -4,6 +4,7 @@ from typing import Iterable
 
 from clipper_worker.candidate_review import CandidateEvaluation
 from clipper_worker.candidates import CandidateWindow
+from clipper_worker.scoring import CandidateScore
 
 DEFAULT_TOP_N = 10
 DEFAULT_OVERLAP_THRESHOLD = 0.7
@@ -22,6 +23,40 @@ def rank_and_deduplicate_candidates(
     top_n: int = DEFAULT_TOP_N,
     overlap_threshold: float = DEFAULT_OVERLAP_THRESHOLD,
 ) -> tuple[RankedCandidate, ...]:
+    ranked = (
+        RankedCandidate(candidate, evaluation, _evaluation_score(evaluation))
+        for candidate, evaluation in candidates
+    )
+    return _deduplicate_ranked(
+        ranked,
+        top_n=top_n,
+        overlap_threshold=overlap_threshold,
+    )
+
+
+def rank_scored_candidates(
+    candidates: Iterable[tuple[CandidateWindow, CandidateEvaluation, CandidateScore]],
+    *,
+    top_n: int = DEFAULT_TOP_N,
+    overlap_threshold: float = DEFAULT_OVERLAP_THRESHOLD,
+) -> tuple[RankedCandidate, ...]:
+    ranked = (
+        RankedCandidate(candidate, evaluation, score.combined_score)
+        for candidate, evaluation, score in candidates
+    )
+    return _deduplicate_ranked(
+        ranked,
+        top_n=top_n,
+        overlap_threshold=overlap_threshold,
+    )
+
+
+def _deduplicate_ranked(
+    candidates: Iterable[RankedCandidate],
+    *,
+    top_n: int,
+    overlap_threshold: float,
+) -> tuple[RankedCandidate, ...]:
     if top_n <= 0:
         raise ValueError("Top-N limit must be positive")
     if (
@@ -31,11 +66,10 @@ def rank_and_deduplicate_candidates(
     ):
         raise ValueError("Overlap threshold must be finite and within (0, 1]")
 
-    ranked = [
-        RankedCandidate(candidate, evaluation, _evaluation_score(evaluation))
-        for candidate, evaluation in candidates
-    ]
+    ranked = list(candidates)
     for item in ranked:
+        if not math.isfinite(item.score) or not 0 <= item.score <= 1:
+            raise ValueError("Candidate score must be finite and between 0 and 1")
         if (
             not math.isfinite(item.candidate.start_seconds)
             or not math.isfinite(item.candidate.end_seconds)
