@@ -12,10 +12,19 @@ class TranscriptionError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class WordTimestamp:
+    start_seconds: float
+    end_seconds: float
+    text: str
+    probability: float | None
+
+
+@dataclass(frozen=True)
 class TranscriptionSegment:
     start_seconds: float
     end_seconds: float
     text: str
+    words: tuple[WordTimestamp, ...]
 
 
 @dataclass(frozen=True)
@@ -54,12 +63,26 @@ def transcribe_audio(
             str(path),
             language=language,
             beam_size=5,
+            word_timestamps=True,
         )
         segments = tuple(
             TranscriptionSegment(
                 start_seconds=float(segment.start),
                 end_seconds=float(segment.end),
                 text=segment.text.strip(),
+                words=tuple(
+                    WordTimestamp(
+                        start_seconds=float(word.start),
+                        end_seconds=float(word.end),
+                        text=word.word.strip(),
+                        probability=(
+                            float(word.probability)
+                            if word.probability is not None
+                            else None
+                        ),
+                    )
+                    for word in (segment.words or ())
+                ),
             )
             for segment in raw_segments
         )

@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base, Job, Project, Video
 from clipper_worker import tasks
 from clipper_worker.media import MediaMetadata
-from clipper_worker.transcription import TranscriptionResult, TranscriptionSegment
+from clipper_worker.transcription import (
+    TranscriptionResult,
+    TranscriptionSegment,
+    WordTimestamp,
+)
 
 
 class FakeObjectStorage:
@@ -76,7 +80,14 @@ def test_process_video_updates_job_and_persists_metadata(
         language="en",
         language_probability=0.99,
         duration_seconds=3,
-        segments=(TranscriptionSegment(0, 3, "An example transcript."),),
+        segments=(
+            TranscriptionSegment(
+                0,
+                3,
+                "An example transcript.",
+                words=(WordTimestamp(0, 3, "transcript.", 0.98),),
+            ),
+        ),
     )
     monkeypatch.setattr(tasks, "transcribe_audio", lambda _path: transcription_result)
 
