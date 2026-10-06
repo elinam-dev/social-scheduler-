@@ -1,7 +1,10 @@
 import logging
+import tempfile
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import BinaryIO
+from zipfile import ZIP_STORED, ZipFile
 
 from botocore.exceptions import BotoCoreError, ClientError
 from botocore.response import StreamingBody
@@ -220,6 +223,78 @@ def _stream_body(body: StreamingBody) -> Iterator[bytes]:
         body.close()
 
 
+def _stream_file(body: BinaryIO) -> Iterator[bytes]:
+    try:
+        while chunk := body.read(64 * 1024):
+            yield chunk
+    finally:
+        body.close()
+
+
+def _get_storage_file(
+    storage: ObjectStorage,
+    object_key: str,
+    *,
+    purpose: str,
+    range_header: str | None = None,
+) -> tuple[StreamingBody, int, str | None, str | None]:
+    try:
+        return storage.get_file(object_key, range_header)
+    except ClientError as error:
+        error_code = error.response.get("Error", {}).get("Code")
+        if error_code in {"NoSuchKey", "404", "NotFound"}:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"{purpose} file not found",
+            ) from error
+        if error_code == "InvalidRange":
+            raise HTTPException(
+                status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+                detail="Requested byte range is not available",
+            ) from error
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"{purpose} storage is unavailable",
+        ) from error
+    except BotoCoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"{purpose} storage is unavailable",
+        ) from error
+
+
+def _create_clip_archive(clips: list[Clip], storage: ObjectStorage) -> BinaryIO:
+    archive = tempfile.TemporaryFile()
+    try:
+        with ZipFile(archive, mode="w", compression=ZIP_STORED) as zip_file:
+            for index, clip in enumerate(clips, start=1):
+                if clip.object_key is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Clip download is not available yet",
+                    )
+                body, _, _, _ = _get_storage_file(
+                    storage,
+                    clip.object_key,
+                    purpose="Clip download",
+                )
+                filename = (
+                    f"clip-{clip.rank if clip.rank is not None else index:02d}-"
+                    f"{clip.id}.mp4"
+                )
+                try:
+                    with zip_file.open(filename, mode="w", force_zip64=True) as entry:
+                        while chunk := body.read(64 * 1024):
+                            entry.write(chunk)
+                finally:
+                    body.close()
+        archive.seek(0)
+    except Exception:
+        archive.close()
+        raise
+    return archive
+
+
 @router.get("/clips/{clip_id}/preview")
 def preview_clip(
     clip_id: uuid.UUID,
@@ -239,32 +314,12 @@ def preview_clip(
             detail="Clip preview is not available yet",
         )
 
-    try:
-        body, content_length, content_type, content_range = storage.get_file(
-            clip.object_key,
-            range_header,
-        )
-    except ClientError as error:
-        error_code = error.response.get("Error", {}).get("Code")
-        if error_code in {"NoSuchKey", "404", "NotFound"}:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Clip preview file not found",
-            ) from error
-        if error_code == "InvalidRange":
-            raise HTTPException(
-                status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
-                detail="Requested byte range is not available",
-            ) from error
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Clip preview storage is unavailable",
-        ) from error
-    except BotoCoreError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Clip preview storage is unavailable",
-        ) from error
+    body, content_length, content_type, content_range = _get_storage_file(
+        storage,
+        clip.object_key,
+        purpose="Clip preview",
+        range_header=range_header,
+    )
 
     headers = {
         "Accept-Ranges": "bytes",
@@ -281,4 +336,78 @@ def preview_clip(
         status_code=response_status,
         media_type=content_type or "video/mp4",
         headers=headers,
+    )
+
+
+@router.get("/clips/{clip_id}/download")
+def download_clip(
+    clip_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    storage: ObjectStorage = Depends(get_object_storage),
+) -> StreamingResponse:
+    clip = session.get(Clip, clip_id)
+    if clip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clip not found",
+        )
+    if clip.status != "ready" or clip.object_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Clip download is not available yet",
+        )
+
+    body, content_length, content_type, _ = _get_storage_file(
+        storage,
+        clip.object_key,
+        purpose="Clip download",
+    )
+    headers = {
+        "Content-Length": str(content_length),
+        "Content-Disposition": f'attachment; filename="clip-{clip.id}.mp4"',
+    }
+    return StreamingResponse(
+        _stream_body(body),
+        media_type=content_type or "video/mp4",
+        headers=headers,
+    )
+
+
+@router.get("/videos/{video_id}/clips/download")
+def download_video_clips(
+    video_id: uuid.UUID,
+    session: Session = Depends(get_session),
+    storage: ObjectStorage = Depends(get_object_storage),
+) -> StreamingResponse:
+    if session.get(Video, video_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found",
+        )
+    clips = session.scalars(
+        select(Clip)
+        .where(
+            Clip.video_id == video_id,
+            Clip.status == "ready",
+            Clip.object_key.is_not(None),
+        )
+        .order_by(
+            Clip.rank.asc().nulls_last(),
+            Clip.start_seconds.asc(),
+            Clip.created_at.asc(),
+        )
+    ).all()
+    if not clips:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No rendered clips are available for download",
+        )
+
+    archive = _create_clip_archive(clips, storage)
+    return StreamingResponse(
+        _stream_file(archive),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (f'attachment; filename="clips-{video_id}.zip"')
+        },
     )

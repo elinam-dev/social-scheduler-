@@ -258,6 +258,14 @@ export const api = {
     return `${apiBaseUrl}/clips/${encodeURIComponent(clipId)}/preview`;
   },
 
+  clipDownloadUrl(clipId: string): string {
+    return `${apiBaseUrl}/clips/${encodeURIComponent(clipId)}/download`;
+  },
+
+  videoClipsDownloadUrl(videoId: string): string {
+    return `${apiBaseUrl}/videos/${encodeURIComponent(videoId)}/clips/download`;
+  },
+
   getTranscript(videoId: string): Promise<Transcript> {
     return request<Transcript>(
       `/videos/${encodeURIComponent(videoId)}/transcript`,

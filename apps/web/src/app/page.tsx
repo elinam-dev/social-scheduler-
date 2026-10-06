@@ -479,9 +479,19 @@ export default function Home() {
               </p>
               <h2 className="mt-2 text-2xl font-semibold">Your clips</h2>
             </div>
-            <p className="text-sm text-[#78847d]">
-              Ranked previews appear here when available.
-            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              {videoId && clips?.some((clip) => clip.preview_url) && (
+                <a
+                  className="rounded-lg bg-[#194d40] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#123e33]"
+                  href={api.videoClipsDownloadUrl(videoId)}
+                >
+                  Download ready clips (.zip)
+                </a>
+              )}
+              <p className="text-sm text-[#78847d]">
+                Ranked previews appear here when available.
+              </p>
+            </div>
           </div>
 
           {stage === "processing" && (
@@ -581,6 +591,14 @@ export default function Home() {
                     >
                       {renderingClipId === clip.id ? "Rendering…" : "Re-render"}
                     </button>
+                    {clip.preview_url && (
+                      <a
+                        className="ml-2 mt-4 inline-block rounded-lg border border-[#d4d8d0] px-3 py-2 text-xs font-semibold text-[#397263] transition hover:bg-[#f5f8f4]"
+                        href={api.clipDownloadUrl(clip.id)}
+                      >
+                        Download MP4
+                      </a>
+                    )}
                     <label className="mt-4 block text-xs font-semibold text-[#52645d]">
                       Caption style
                       <select

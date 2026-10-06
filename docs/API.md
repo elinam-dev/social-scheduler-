@@ -51,7 +51,10 @@ marks a changed clip pending until it is rendered again. The
 and returns a job that can be monitored through the same SSE endpoint. Rerender
 uses the clip's saved boundaries, aspect ratio, transcript word timing, and
 caption preset. It currently uses the blurred-background layout while preserving
-source audio when present.
+source audio when present. Download a ready clip as an attachment with
+`GET /clips/{clip_id}/download`. `GET /videos/{video_id}/clips/download`
+creates a ZIP containing every currently ready clip; it returns a conflict if
+there are no rendered clips to include.
 Transcription uses the configurable `CLIPPER_WHISPER_MODEL` setting (default
 `small`); faster-whisper downloads the selected model on first use and caches its
 weights in a persistent Docker volume outside the repository. CPU uses int8

@@ -29,6 +29,8 @@ marks the clip pending until it is rendered again. Re-render any clip
 individually and follow its live job progress. Renders burn captions using the
 selected style and use a blurred-background layout at the clip's saved aspect
 ratio. Videos without saved clips show an empty state.
+Ready clips can be downloaded individually as MP4 files or together as a ZIP
+containing the currently rendered clips.
 
 Check the app with:
 

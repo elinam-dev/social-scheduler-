@@ -1,5 +1,6 @@
 import io
 import uuid
+from zipfile import ZipFile
 
 import anyio
 from botocore.response import StreamingBody
@@ -140,11 +141,14 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             base_url="http://test",
         ) as client:
             clips = await client.get(f"/videos/{video_id}/clips")
+            clip_download = await client.get(f"/clips/{ready_clip_id}/download")
+            clips_archive = await client.get(f"/videos/{video_id}/clips/download")
             full_preview = await client.get(f"/clips/{ready_clip_id}/preview")
             partial_preview = await client.get(
                 f"/clips/{ready_clip_id}/preview",
                 headers={"Range": "bytes=1-3"},
             )
+            pending_download = await client.get(f"/clips/{pending_clip_id}/download")
             pending_preview = await client.get(f"/clips/{pending_clip_id}/preview")
             updated_trim = await client.patch(
                 f"/clips/{ready_clip_id}/trim",
@@ -171,13 +175,18 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             duplicate_render = await client.post(f"/clips/{ready_clip_id}/render")
             queue.error = RedisError("Redis unavailable")
             failed_render = await client.post(f"/clips/{pending_clip_id}/render")
+            empty_archive = await client.get(f"/videos/{video_id}/clips/download")
+            missing_archive = await client.get(f"/videos/{uuid.uuid4()}/clips/download")
             missing_clip = await client.get(f"/clips/{uuid.uuid4()}/preview")
             missing_video = await client.get(f"/videos/{uuid.uuid4()}/clips")
         return (
             clips,
+            clip_download,
+            clips_archive,
             full_preview,
             partial_preview,
             pending_preview,
+            pending_download,
             updated_trim,
             preview_after_trim,
             outside_video,
@@ -187,6 +196,8 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             render_job,
             duplicate_render,
             failed_render,
+            empty_archive,
+            missing_archive,
             missing_clip,
             missing_video,
         )
@@ -194,9 +205,12 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
     try:
         (
             clips,
+            clip_download,
+            clips_archive,
             full_preview,
             partial_preview,
             pending_preview,
+            pending_download,
             updated_trim,
             preview_after_trim,
             outside_video,
@@ -206,6 +220,8 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             render_job,
             duplicate_render,
             failed_render,
+            empty_archive,
+            missing_archive,
             missing_clip,
             missing_video,
         ) = anyio.run(request_routes)
@@ -218,6 +234,21 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
     assert clips.json()[0]["preview_url"] == f"/clips/{ready_clip_id}/preview"
     assert clips.json()[1]["preview_url"] is None
 
+    assert clip_download.status_code == 200
+    assert clip_download.content == b"clip-data"
+    assert clip_download.headers["content-disposition"] == (
+        f'attachment; filename="clip-{ready_clip_id}.mp4"'
+    )
+    assert clips_archive.status_code == 200
+    assert clips_archive.headers["content-type"] == "application/zip"
+    assert clips_archive.headers["content-disposition"] == (
+        f'attachment; filename="clips-{video_id}.zip"'
+    )
+    with ZipFile(io.BytesIO(clips_archive.content)) as archive:
+        archive_name = f"clip-01-{ready_clip_id}.mp4"
+        assert archive.namelist() == [archive_name]
+        assert archive.read(archive_name) == b"clip-data"
+
     assert full_preview.status_code == 200
     assert full_preview.content == b"clip-data"
     assert full_preview.headers["accept-ranges"] == "bytes"
@@ -228,6 +259,7 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
     assert storage.requested_range == "bytes=1-3"
 
     assert pending_preview.status_code == 409
+    assert pending_download.status_code == 409
     assert updated_trim.status_code == 200
     assert updated_trim.json()["start_seconds"] == 12
     assert updated_trim.json()["end_seconds"] == 28
@@ -244,6 +276,8 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
     assert render_job.json()["status"] == "queued"
     assert duplicate_render.status_code == 409
     assert failed_render.status_code == 503
+    assert empty_archive.status_code == 409
+    assert missing_archive.status_code == 404
     assert len(queue.enqueued) == 1
     function, args, options = queue.enqueued[0]
     assert function == "clipper_worker.tasks.render_clip_job"
