@@ -43,7 +43,7 @@ class CandidateEvaluation(BaseModel):
     rationale: str = Field(min_length=1, max_length=500)
 
 
-class CandidateReviewError(RuntimeError):
+class StructuredOutputError(RuntimeError):
     pass
 
 
@@ -99,7 +99,7 @@ def generate_validated_response(
                     f"Validation issue: {_validation_summary(error)}"
                 )
 
-    raise CandidateReviewError(
+    raise StructuredOutputError(
         f"LLM response failed schema validation after {max_attempts} attempts"
     ) from last_error
 

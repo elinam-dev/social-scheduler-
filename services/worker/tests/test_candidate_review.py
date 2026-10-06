@@ -4,7 +4,7 @@ import pytest
 
 from clipper_worker.candidate_review import (
     CandidateEvaluation,
-    CandidateReviewError,
+    StructuredOutputError,
     review_candidate,
 )
 from clipper_worker.candidates import CandidateWindow
@@ -72,7 +72,7 @@ def test_review_candidate_retries_invalid_output_with_schema_feedback() -> None:
 def test_review_candidate_exhausts_validation_retries_explicitly() -> None:
     client = FakeLLMClient(['{"hook_strength": 0.5}', "not JSON"])
 
-    with pytest.raises(CandidateReviewError, match="after 2 attempts"):
+    with pytest.raises(StructuredOutputError, match="after 2 attempts"):
         review_candidate(_candidate(), client, max_attempts=2)
 
     assert len(client.calls) == 2

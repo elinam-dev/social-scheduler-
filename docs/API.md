@@ -56,6 +56,8 @@ candidate scores combine the mean LLM review, normalized PCM audio
 energy, speech-rate fit, and explicit laughter markers in the transcript. The
 initial weights and normalization ranges are recorded in [DECISIONS.md](./DECISIONS.md)
 and are intended to be tuned against the evaluation set.
+Each reviewed clip can also receive an 80-character title and 120-character
+on-screen hook, both required to remain grounded in the transcript.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
