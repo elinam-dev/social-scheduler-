@@ -70,7 +70,9 @@ required. A greedy intersection-over-union tracker links detections between
 samples into deterministic face tracks, with configurable overlap and maximum
 gap thresholds. Diarized speaker turns can be associated with tracks by temporal
 co-occurrence. This is a local heuristic, not lip-reading or proof of who is
-speaking; inspect associations for multi-person shots.
+speaking; inspect associations for multi-person shots. A smoothed crop path can
+follow a selected face track, emitting even-pixel, in-bounds crop rectangles at
+each detected timestamp for vertical output.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
