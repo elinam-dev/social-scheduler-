@@ -3,12 +3,19 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { api, ApiError, type JobRead } from "@/lib/api";
+import { api, ApiError, type ClipRead, type JobRead } from "@/lib/api";
 
 type UploadStage = "idle" | "creating" | "uploading" | "processing" | "succeeded" | "failed";
 
 function isTerminal(job: JobRead): boolean {
   return job.status === "succeeded" || job.status === "failed";
+}
+
+function formatClipTime(seconds: number): string {
+  const wholeSeconds = Math.floor(seconds);
+  const minutes = Math.floor(wholeSeconds / 60);
+  const remainingSeconds = wholeSeconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
 export default function Home() {
@@ -17,11 +24,27 @@ export default function Home() {
   const [stage, setStage] = useState<UploadStage>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [job, setJob] = useState<JobRead | null>(null);
+  const [videoId, setVideoId] = useState<string | null>(null);
+  const [clips, setClips] = useState<ClipRead[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clipError, setClipError] = useState<string | null>(null);
   const [streamWarning, setStreamWarning] = useState<string | null>(null);
   const eventSource = useRef<EventSource | null>(null);
 
   useEffect(() => () => eventSource.current?.close(), []);
+
+  async function loadClips(id: string) {
+    setClipError(null);
+    try {
+      setClips(await api.getClips(id));
+    } catch (cause) {
+      setClipError(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not load clips from the local API.",
+      );
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -34,6 +57,9 @@ export default function Home() {
     setError(null);
     setStreamWarning(null);
     setJob(null);
+    setVideoId(null);
+    setClips(null);
+    setClipError(null);
     setUploadProgress(0);
     setStage("creating");
 
@@ -42,9 +68,13 @@ export default function Home() {
       setStage("uploading");
       const result = await api.uploadVideo(project.id, file, setUploadProgress);
       setJob(result.job);
+      setVideoId(result.video.id);
 
       if (isTerminal(result.job)) {
         setStage(result.job.status === "succeeded" ? "succeeded" : "failed");
+        if (result.job.status === "succeeded") {
+          void loadClips(result.video.id);
+        }
         return;
       }
 
@@ -59,6 +89,9 @@ export default function Home() {
             source.close();
             eventSource.current = null;
             setStage(update.status === "succeeded" ? "succeeded" : "failed");
+            if (update.status === "succeeded" && update.video_id) {
+              void loadClips(update.video_id);
+            }
           }
         } catch {
           source.close();
@@ -216,6 +249,97 @@ export default function Home() {
           </p>
         </div>
       </section>
+
+      {videoId && (
+        <section className="mx-auto w-full max-w-6xl px-6 pb-14">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold tracking-[0.18em] text-[#397263]">
+                VIDEO RESULTS
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold">Your clips</h2>
+            </div>
+            <p className="text-sm text-[#78847d]">
+              Ranked previews appear here when available.
+            </p>
+          </div>
+
+          {stage === "processing" && (
+            <p className="rounded-2xl border border-[#dfe2db] bg-white p-6 text-sm text-[#64726b]">
+              Processing your video. Clips will be listed here when processing
+              finishes.
+            </p>
+          )}
+          {stage === "succeeded" && clips === null && !clipError && (
+            <p className="rounded-2xl border border-[#dfe2db] bg-white p-6 text-sm text-[#64726b]">
+              Loading clips…
+            </p>
+          )}
+          {clipError && (
+            <p
+              className="rounded-2xl border border-red-200 bg-white p-6 text-sm text-red-700"
+              role="alert"
+            >
+              {clipError}
+            </p>
+          )}
+          {stage === "succeeded" && clips?.length === 0 && (
+            <p className="rounded-2xl border border-[#dfe2db] bg-white p-6 text-sm text-[#64726b]">
+              No rendered clips are available for this video yet.
+            </p>
+          )}
+          {stage === "failed" && !clipError && (
+            <p className="rounded-2xl border border-[#dfe2db] bg-white p-6 text-sm text-[#64726b]">
+              Video processing failed, so no clips are available.
+            </p>
+          )}
+          {clips && clips.length > 0 && (
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {clips.map((clip, index) => (
+                <article
+                  className="overflow-hidden rounded-2xl border border-[#dfe2db] bg-white shadow-sm"
+                  key={clip.id}
+                >
+                  {clip.preview_url ? (
+                    <video
+                      aria-label={`Preview: Clip ${clip.rank ?? index + 1}`}
+                      className={`w-full bg-[#1e2926] object-contain ${
+                        clip.aspect_ratio === "1:1"
+                          ? "aspect-square"
+                          : clip.aspect_ratio === "16:9"
+                            ? "aspect-video"
+                            : "aspect-[9/16]"
+                      }`}
+                      controls
+                      preload="metadata"
+                      src={api.clipPreviewUrl(clip.id)}
+                    />
+                  ) : (
+                    <div className="grid aspect-[9/16] w-full place-items-center bg-[#e9ede8] px-6 text-center text-sm text-[#64726b]">
+                      Preview unavailable
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-semibold">
+                        Clip {clip.rank ?? index + 1}
+                      </h3>
+                      <span className="shrink-0 rounded-full bg-[#e9f3ed] px-2.5 py-1 text-xs font-semibold text-[#397263]">
+                        {clip.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-[#78847d]">
+                      {formatClipTime(clip.start_seconds)}–{formatClipTime(clip.end_seconds)}
+                      {" · "}
+                      {Math.round(clip.end_seconds - clip.start_seconds)} sec
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <footer className="mx-auto flex w-full max-w-6xl flex-wrap justify-between gap-2 px-6 py-6 text-xs text-[#78847d]">
         <span>Private by design · Runs on your computer</span>

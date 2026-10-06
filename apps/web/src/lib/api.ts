@@ -33,6 +33,20 @@ export interface JobRead {
   completed_at: string | null;
 }
 
+export interface ClipRead {
+  id: string;
+  video_id: string;
+  start_seconds: number;
+  end_seconds: number;
+  rank: number | null;
+  score: number | null;
+  title: string | null;
+  aspect_ratio: string;
+  status: string;
+  created_at: string;
+  preview_url: string | null;
+}
+
 export interface VideoUploadResponse {
   video: VideoRead;
   job: JobRead;
@@ -189,6 +203,16 @@ export const api = {
 
   getJob(jobId: string): Promise<JobRead> {
     return request<JobRead>(`/jobs/${encodeURIComponent(jobId)}`);
+  },
+
+  getClips(videoId: string): Promise<ClipRead[]> {
+    return request<ClipRead[]>(
+      `/videos/${encodeURIComponent(videoId)}/clips`,
+    );
+  },
+
+  clipPreviewUrl(clipId: string): string {
+    return `${apiBaseUrl}/clips/${encodeURIComponent(clipId)}/preview`;
   },
 
   getTranscript(videoId: string): Promise<Transcript> {

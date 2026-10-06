@@ -38,6 +38,11 @@ dimensions, frame rate, and the MinIO key for extracted 16 kHz mono WAV audio.
 The web app receives browser upload progress and then subscribes to
 `GET /jobs/{job_id}/events`, a server-sent event stream that emits job updates
 until processing succeeds or fails. Clients can also poll `GET /jobs/{job_id}`.
+After processing, the web app requests ranked clip metadata from
+`GET /videos/{video_id}/clips`; ready clips include a preview URL at
+`GET /clips/{clip_id}/preview`. Previews are streamed from MinIO and support
+HTTP byte ranges for playback seeking. A video with no saved clip records
+returns an empty list.
 Transcription uses the configurable `CLIPPER_WHISPER_MODEL` setting (default
 `small`); faster-whisper downloads the selected model on first use and caches its
 weights in a persistent Docker volume outside the repository. CPU uses int8

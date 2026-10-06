@@ -4,6 +4,7 @@ from typing import BinaryIO
 import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
 
 from app.config import Settings
 
@@ -31,6 +32,20 @@ class ObjectStorage:
 
     def download_file(self, object_key: str, destination: str | Path) -> None:
         self.client.download_file(self.bucket, object_key, str(destination))
+
+    def get_file(
+        self, object_key: str, byte_range: str | None = None
+    ) -> tuple[StreamingBody, int, str | None, str | None]:
+        parameters: dict[str, str] = {"Bucket": self.bucket, "Key": object_key}
+        if byte_range is not None:
+            parameters["Range"] = byte_range
+        response = self.client.get_object(**parameters)
+        return (
+            response["Body"],
+            response["ContentLength"],
+            response.get("ContentType"),
+            response.get("ContentRange"),
+        )
 
     def _ensure_bucket(self) -> None:
         try:
