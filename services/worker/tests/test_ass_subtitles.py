@@ -1,6 +1,9 @@
+from dataclasses import replace
+
 import pytest
 
 from clipper_worker.ass_subtitles import build_ass_subtitles
+from clipper_worker.caption_styles import CAPTION_STYLE_PRESETS
 from clipper_worker.captions import CaptionChunk
 from clipper_worker.transcription import WordTimestamp
 
@@ -25,6 +28,49 @@ def test_build_ass_subtitles_escapes_ass_controls_and_newlines() -> None:
 
     expected_text = r"Keep \{this\}" + "\\" * 4 + r" safe\NNext"
     assert expected_text in ass
+
+
+def test_build_ass_subtitles_highlights_words_with_timestamped_karaoke() -> None:
+    words = (
+        WordTimestamp(0, 0.3, "First", 0.9),
+        WordTimestamp(0.4, 0.7, "second!", 0.9),
+    )
+    chunk = CaptionChunk(0, 0.7, "First second!", words)
+
+    ass = build_ass_subtitles([chunk], style=CAPTION_STYLE_PRESETS["word-highlight"])
+
+    assert "Style: WordHighlight," in ass
+    assert (
+        r"Dialogue: 0,0:00:00.00,0:00:00.70,WordHighlight,,0,0,0,,"
+        r"{\k40}First {\k30}second!"
+    ) in ass
+
+
+def test_build_ass_subtitles_truncates_karaoke_at_clip_boundaries() -> None:
+    words = (
+        WordTimestamp(0, 0.3, "First", 0.9),
+        WordTimestamp(0.4, 0.7, "second", 0.9),
+    )
+    chunk = CaptionChunk(0, 0.7, "First second", words)
+
+    ass = build_ass_subtitles(
+        [chunk],
+        style=CAPTION_STYLE_PRESETS["word-highlight"],
+        clip_start_seconds=0.1,
+        clip_end_seconds=0.6,
+    )
+
+    assert (
+        r"Dialogue: 0,0:00:00.00,0:00:00.50,WordHighlight,,0,0,0,,"
+        r"{\k30}First {\k20}second"
+    ) in ass
+
+
+def test_build_ass_subtitles_rejects_unsafe_style_fields() -> None:
+    unsafe_style = replace(CAPTION_STYLE_PRESETS["default"], font_name="Arial,Other")
+
+    with pytest.raises(ValueError, match="exclude commas"):
+        build_ass_subtitles([], style=unsafe_style)
 
 
 def test_build_ass_subtitles_rebases_and_clips_caption_times() -> None:

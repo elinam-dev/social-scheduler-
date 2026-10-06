@@ -1,7 +1,9 @@
 import math
 from collections.abc import Iterable
 
+from clipper_worker.caption_styles import DEFAULT_CAPTION_STYLE, CaptionStyle
 from clipper_worker.captions import CaptionChunk
+from clipper_worker.transcription import WordTimestamp
 
 
 def build_ass_subtitles(
@@ -11,6 +13,7 @@ def build_ass_subtitles(
     play_res_y: int = 1920,
     clip_start_seconds: float = 0,
     clip_end_seconds: float | None = None,
+    style: CaptionStyle = DEFAULT_CAPTION_STYLE,
 ) -> str:
     if play_res_x <= 0 or play_res_y <= 0:
         raise ValueError("ASS play resolution must be positive")
@@ -20,6 +23,7 @@ def build_ass_subtitles(
         not math.isfinite(clip_end_seconds) or clip_end_seconds <= clip_start_seconds
     ):
         raise ValueError("Clip end time must be finite and after its start")
+    _validate_style(style)
 
     events: list[str] = []
     for chunk in chunks:
@@ -38,10 +42,23 @@ def build_ass_subtitles(
         )
         if end <= start:
             continue
-        text = _escape_ass_text(chunk.text)
+        visible_words = tuple(
+            word
+            for word in chunk.words
+            if word.end_seconds > clip_start_seconds
+            and (clip_end_seconds is None or word.start_seconds < clip_end_seconds)
+        )
+        if not visible_words:
+            continue
+        if style.highlight_words:
+            text = _karaoke_text(visible_words, clip_start_seconds, clip_end_seconds)
+        else:
+            text = " ".join(_escape_ass_text(word.text) for word in visible_words)
+        event_start = max(start, visible_words[0].start_seconds) - clip_start_seconds
         events.append(
-            f"Dialogue: 0,{_format_ass_time(start - clip_start_seconds)},"
-            f"{_format_ass_time(end - clip_start_seconds)},Default,,0,0,0,,{text}"
+            f"Dialogue: 0,{_format_ass_time(event_start)},"
+            f"{_format_ass_time(end - clip_start_seconds)},{style.name},,"
+            f"0,0,0,,{text}"
         )
 
     header = (
@@ -57,8 +74,12 @@ def build_ass_subtitles(
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        "Style: Default,Arial,64,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,"
-        "-1,0,0,0,100,100,0,0,1,3,1,2,60,60,120,1\n"
+        f"Style: {style.name},{style.font_name},{style.font_size},"
+        f"{style.primary_colour},{style.secondary_colour},{style.outline_colour},"
+        f"{style.back_colour},{-1 if style.bold else 0},"
+        f"{-1 if style.italic else 0},0,0,100,100,0,0,1,{style.outline},"
+        f"{style.shadow},{style.alignment},{style.margin_left},"
+        f"{style.margin_right},{style.margin_vertical},1\n"
         "\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
@@ -84,3 +105,59 @@ def _escape_ass_text(text: str) -> str:
         .replace("\n", r"\N")
         .replace("\r", r"\N")
     )
+
+
+def _karaoke_text(
+    words: tuple[WordTimestamp, ...],
+    clip_start_seconds: float,
+    clip_end_seconds: float | None,
+) -> str:
+    parts: list[str] = []
+    for index, word in enumerate(words):
+        start = max(word.start_seconds, clip_start_seconds)
+        next_start = (
+            words[index + 1].start_seconds
+            if index + 1 < len(words)
+            else word.end_seconds
+        )
+        end = (
+            min(next_start, word.end_seconds) if index + 1 == len(words) else next_start
+        )
+        if clip_end_seconds is not None:
+            end = min(end, clip_end_seconds)
+        duration = max(0, round((end - start) * 100))
+        parts.append(f"{{\\k{duration}}}{_escape_ass_text(word.text)}")
+    return " ".join(parts)
+
+
+def _validate_style(style: CaptionStyle) -> None:
+    text_fields = (
+        style.name,
+        style.font_name,
+        style.primary_colour,
+        style.secondary_colour,
+        style.outline_colour,
+        style.back_colour,
+    )
+    if any(
+        not value or any(character in value for character in ",\r\n")
+        for value in text_fields
+    ):
+        raise ValueError(
+            "ASS style text fields must be nonempty and exclude commas or newlines"
+        )
+    if style.font_size <= 0:
+        raise ValueError("ASS style font size must be positive")
+    if not 1 <= style.alignment <= 9:
+        raise ValueError("ASS style alignment must be between 1 and 9")
+    if (
+        min(
+            style.outline,
+            style.shadow,
+            style.margin_left,
+            style.margin_right,
+            style.margin_vertical,
+        )
+        < 0
+    ):
+        raise ValueError("ASS style outline, shadow, and margins must be nonnegative")
