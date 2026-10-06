@@ -56,4 +56,7 @@ docker compose exec ollama ollama pull llama3.2
 To use an OpenAI-compatible backend instead, set
 `CLIPPER_LLM_PROVIDER=openai-compatible`, its model and base URL, and
 `CLIPPER_LLM_API_KEY` in the ignored `.env` file. An API key is only sent when
-this provider is explicitly selected.
+this provider is explicitly selected. Candidate review expects JSON scores from
+0 to 1 for hook strength, standalone coherence, payoff, and pacing, plus a
+standalone flag and rationale. Invalid JSON or schema values are retried up to
+three attempts; network and provider failures are reported immediately.
