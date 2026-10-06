@@ -22,6 +22,7 @@ def render_aspect_export(
     ffmpeg_binary: str = "ffmpeg",
     preset: str = "medium",
     crf: int = 20,
+    subtitle_path: str | Path | None = None,
 ) -> Path:
     if profile == "9:16":
         output_width, output_height = 1080, 1920
@@ -58,4 +59,5 @@ def render_aspect_export(
         ffmpeg_binary=ffmpeg_binary,
         preset=preset,
         crf=crf,
+        subtitle_path=subtitle_path,
     )

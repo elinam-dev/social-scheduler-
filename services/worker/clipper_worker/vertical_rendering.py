@@ -5,6 +5,7 @@ from pathlib import Path
 from clipper_worker.crop_path import CropFrame
 from clipper_worker.media import probe_media
 from clipper_worker.rendering import ClipRenderError
+from clipper_worker.subtitle_filter import build_ass_filter
 
 
 def render_vertical_clip(
@@ -19,6 +20,7 @@ def render_vertical_clip(
     ffmpeg_binary: str = "ffmpeg",
     preset: str = "medium",
     crf: int = 20,
+    subtitle_path: str | Path | None = None,
 ) -> Path:
     source = Path(input_path)
     destination = Path(output_path)
@@ -41,6 +43,9 @@ def render_vertical_clip(
         raise ValueError("H.264 CRF must be between 0 and 51")
     if not preset:
         raise ValueError("H.264 preset must not be blank")
+    subtitle_filter = (
+        f",{build_ass_filter(subtitle_path)}" if subtitle_path is not None else ""
+    )
     if not crop_path:
         raise ValueError("A non-empty crop path is required for vertical rendering")
 
@@ -59,6 +64,7 @@ def render_vertical_clip(
         f"crop=w={first_crop.width}:h={first_crop.height}:"
         f"x='{x_expression}':y='{y_expression}',"
         f"scale={output_width}:{output_height}:flags=lanczos,setsar=1"
+        f"{subtitle_filter}"
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
     command = [

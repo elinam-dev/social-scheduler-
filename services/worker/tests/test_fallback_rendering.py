@@ -91,6 +91,39 @@ def test_render_fallback_clip_accepts_video_only_source(
     assert "[0:a:0]" not in command[command.index("-filter_complex") + 1]
 
 
+def test_render_fallback_clip_burns_in_ass_subtitles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"source")
+    subtitles = tmp_path / "captions.ass"
+    subtitles.write_text("[Events]\n", encoding="utf-8")
+    monkeypatch.setattr(
+        fallback_rendering,
+        "probe_media",
+        lambda _path: MediaMetadata(2, 320, 180, 30, False),
+    )
+    command: list[str] = []
+
+    def fake_run(arguments: list[str], **_kwargs: object) -> None:
+        command.extend(arguments)
+        Path(arguments[-1]).write_bytes(b"rendered")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    render_fallback_clip(
+        source,
+        tmp_path / "clip.mp4",
+        0,
+        1,
+        layout="blurred-background",
+        output_width=90,
+        output_height=160,
+        subtitle_path=subtitles,
+    )
+
+    assert "subtitles=filename=" in command[command.index("-filter_complex") + 1]
+
+
 def test_render_fallback_clip_rejects_unknown_layout(tmp_path: Path) -> None:
     source = tmp_path / "source.mp4"
     source.write_bytes(b"source")

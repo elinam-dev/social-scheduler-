@@ -78,6 +78,39 @@ def test_render_vertical_clip_handles_video_without_audio(
     assert "0:v:0" in command
 
 
+def test_render_vertical_clip_burns_in_ass_subtitles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"source")
+    subtitles = tmp_path / "captions.ass"
+    subtitles.write_text("[Events]\n", encoding="utf-8")
+    monkeypatch.setattr(
+        vertical_rendering,
+        "probe_media",
+        lambda _path: MediaMetadata(2, 320, 180, 30, False),
+    )
+    command: list[str] = []
+
+    def fake_run(arguments: list[str], **_kwargs: object) -> None:
+        command.extend(arguments)
+        Path(arguments[-1]).write_bytes(b"rendered")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    render_vertical_clip(
+        source,
+        tmp_path / "clip.mp4",
+        (CropFrame(0, 0, 0, 100, 178),),
+        0,
+        1,
+        output_width=90,
+        output_height=160,
+        subtitle_path=subtitles,
+    )
+
+    assert "subtitles=filename=" in command[command.index("-vf") + 1]
+
+
 def test_render_vertical_clip_rejects_invalid_crop_rectangle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

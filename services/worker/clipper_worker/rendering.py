@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 from clipper_worker.media import probe_media
+from clipper_worker.subtitle_filter import build_ass_filter
 
 
 class ClipRenderError(RuntimeError):
@@ -18,6 +19,7 @@ def render_clip(
     ffmpeg_binary: str = "ffmpeg",
     preset: str = "medium",
     crf: int = 20,
+    subtitle_path: str | Path | None = None,
 ) -> Path:
     source = Path(input_path)
     destination = Path(output_path)
@@ -38,13 +40,17 @@ def render_clip(
         raise ValueError("H.264 CRF must be between 0 and 51")
     if not preset:
         raise ValueError("H.264 preset must not be blank")
+    subtitle_filter = (
+        f",{build_ass_filter(subtitle_path)}" if subtitle_path is not None else ""
+    )
 
     metadata = probe_media(source)
     if end_seconds > metadata.duration_seconds:
         raise ValueError("Clip end time exceeds the source video duration")
 
     video_filter = (
-        f"trim=start={start_seconds:.9f}:end={end_seconds:.9f},setpts=PTS-STARTPTS"
+        f"trim=start={start_seconds:.9f}:end={end_seconds:.9f},"
+        f"setpts=PTS-STARTPTS{subtitle_filter}"
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
     command = [

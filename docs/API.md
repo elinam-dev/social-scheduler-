@@ -87,7 +87,9 @@ clip-time rebasing; subtitle text is escaped to prevent accidental ASS tags.
 Built-in ASS styles include default, minimal, and word-by-word karaoke
 highlighting driven by the original word timing. Callers can optionally pass
 keywords for case-insensitive color emphasis and an explicit keyword-to-emoji
-mapping; no emoji are inserted by default.
+mapping; no emoji are inserted by default. Renderers accept an ASS subtitle path
+to burn captions into regular trims, face-following exports, or either fallback
+layout.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional

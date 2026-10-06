@@ -25,6 +25,8 @@ def test_render_aspect_export_builds_crop_for_selected_profile(
 ) -> None:
     source = tmp_path / "source.mp4"
     source.touch()
+    subtitles = tmp_path / "captions.ass"
+    subtitles.write_text("[Events]\n", encoding="utf-8")
     track = FaceTrack(
         7,
         (
@@ -60,11 +62,13 @@ def test_render_aspect_export_builds_crop_for_selected_profile(
         0,
         2,
         profile=profile,
+        subtitle_path=subtitles,
     )
 
     assert result == tmp_path / "render.mp4"
     assert captured["kwargs"]["output_width"] == dimensions[0]
     assert captured["kwargs"]["output_height"] == dimensions[1]
+    assert captured["kwargs"]["subtitle_path"] == subtitles
     crop = captured["crop_path"][0]
     assert crop.width / crop.height == pytest.approx(aspect_ratio, abs=0.01)
 

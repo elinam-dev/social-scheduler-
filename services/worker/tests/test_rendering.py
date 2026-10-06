@@ -68,6 +68,36 @@ def test_render_clip_handles_sources_without_audio(
     assert "0:v:0" in commands
 
 
+def test_render_clip_burns_in_ass_subtitles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"source")
+    subtitles = tmp_path / "captions.ass"
+    subtitles.write_text("[Events]\n", encoding="utf-8")
+    monkeypatch.setattr(
+        rendering,
+        "probe_media",
+        lambda _path: MediaMetadata(2, 640, 360, 24, False),
+    )
+    command: list[str] = []
+
+    def fake_run(arguments: list[str], **_kwargs: object) -> None:
+        command.extend(arguments)
+        Path(arguments[-1]).write_bytes(b"rendered")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    render_clip(
+        source,
+        tmp_path / "clip.mp4",
+        0,
+        1,
+        subtitle_path=subtitles,
+    )
+
+    assert "subtitles=filename=" in command[command.index("-vf") + 1]
+
+
 @pytest.mark.parametrize(
     ("start", "end"),
     [(float("nan"), 1), (0, float("inf")), (-1, 1), (1, 1)],
