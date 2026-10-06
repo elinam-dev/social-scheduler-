@@ -50,6 +50,7 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             original_filename="episode.mp4",
             object_key="source/episode.mp4",
             size_bytes=100,
+            duration_seconds=60,
         )
         ready_clip = Clip(
             video=video,
@@ -93,6 +94,19 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
                 headers={"Range": "bytes=1-3"},
             )
             pending_preview = await client.get(f"/clips/{pending_clip_id}/preview")
+            updated_trim = await client.patch(
+                f"/clips/{ready_clip_id}/trim",
+                json={"start_seconds": 12, "end_seconds": 28},
+            )
+            preview_after_trim = await client.get(f"/clips/{ready_clip_id}/preview")
+            outside_video = await client.patch(
+                f"/clips/{ready_clip_id}/trim",
+                json={"start_seconds": 50, "end_seconds": 61},
+            )
+            reversed_trim = await client.patch(
+                f"/clips/{ready_clip_id}/trim",
+                json={"start_seconds": 30, "end_seconds": 20},
+            )
             missing_clip = await client.get(f"/clips/{uuid.uuid4()}/preview")
             missing_video = await client.get(f"/videos/{uuid.uuid4()}/clips")
         return (
@@ -100,6 +114,10 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             full_preview,
             partial_preview,
             pending_preview,
+            updated_trim,
+            preview_after_trim,
+            outside_video,
+            reversed_trim,
             missing_clip,
             missing_video,
         )
@@ -110,6 +128,10 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
             full_preview,
             partial_preview,
             pending_preview,
+            updated_trim,
+            preview_after_trim,
+            outside_video,
+            reversed_trim,
             missing_clip,
             missing_video,
         ) = anyio.run(request_routes)
@@ -132,5 +154,18 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
     assert storage.requested_range == "bytes=1-3"
 
     assert pending_preview.status_code == 409
+    assert updated_trim.status_code == 200
+    assert updated_trim.json()["start_seconds"] == 12
+    assert updated_trim.json()["end_seconds"] == 28
+    assert updated_trim.json()["status"] == "pending"
+    assert updated_trim.json()["preview_url"] is None
+    assert preview_after_trim.status_code == 409
+    assert outside_video.status_code == 422
+    assert reversed_trim.status_code == 422
     assert missing_clip.status_code == 404
     assert missing_video.status_code == 404
+
+    with session_factory() as session:
+        updated_clip = session.get(Clip, ready_clip_id)
+        assert updated_clip is not None
+        assert updated_clip.object_key == "clips/ready.mp4"

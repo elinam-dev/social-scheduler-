@@ -47,6 +47,11 @@ export interface ClipRead {
   preview_url: string | null;
 }
 
+export interface ClipTrimUpdate {
+  start_seconds: number;
+  end_seconds: number;
+}
+
 export interface VideoUploadResponse {
   video: VideoRead;
   job: JobRead;
@@ -209,6 +214,17 @@ export const api = {
     return request<ClipRead[]>(
       `/videos/${encodeURIComponent(videoId)}/clips`,
     );
+  },
+
+  updateClipTrim(
+    clipId: string,
+    boundaries: ClipTrimUpdate,
+  ): Promise<ClipRead> {
+    return request<ClipRead>(`/clips/${encodeURIComponent(clipId)}/trim`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(boundaries),
+    });
   },
 
   clipPreviewUrl(clipId: string): string {

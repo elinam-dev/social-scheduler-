@@ -10,10 +10,22 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Clip, Video
 from app.db.session import get_session
-from app.schemas.clip import ClipRead
+from app.schemas.clip import ClipRead, ClipTrimUpdate
 from app.storage import ObjectStorage, get_object_storage
 
 router = APIRouter(tags=["clips"])
+
+
+def _clip_read(clip: Clip) -> ClipRead:
+    return ClipRead.model_validate(clip).model_copy(
+        update={
+            "preview_url": (
+                f"/clips/{clip.id}/preview"
+                if clip.status == "ready" and clip.object_key
+                else None
+            )
+        }
+    )
 
 
 @router.get("/videos/{video_id}/clips", response_model=list[ClipRead])
@@ -36,18 +48,53 @@ def list_video_clips(
             Clip.created_at.asc(),
         )
     ).all()
-    return [
-        ClipRead.model_validate(clip).model_copy(
-            update={
-                "preview_url": (
-                    f"/clips/{clip.id}/preview"
-                    if clip.status == "ready" and clip.object_key
-                    else None
-                )
-            }
+    return [_clip_read(clip) for clip in clips]
+
+
+@router.patch("/clips/{clip_id}/trim", response_model=ClipRead)
+def update_clip_trim(
+    clip_id: uuid.UUID,
+    boundaries: ClipTrimUpdate,
+    session: Session = Depends(get_session),
+) -> ClipRead:
+    clip = session.get(Clip, clip_id)
+    if clip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clip not found",
         )
-        for clip in clips
-    ]
+    if clip.status == "rendering":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Clip boundaries cannot be changed while rendering",
+        )
+
+    video = session.get(Video, clip.video_id)
+    if video is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found",
+        )
+    if (
+        video.duration_seconds is not None
+        and boundaries.end_seconds > video.duration_seconds
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Clip end must not exceed the video duration",
+        )
+
+    if (
+        boundaries.start_seconds != clip.start_seconds
+        or boundaries.end_seconds != clip.end_seconds
+    ):
+        clip.start_seconds = boundaries.start_seconds
+        clip.end_seconds = boundaries.end_seconds
+        clip.status = "pending"
+        session.commit()
+        session.refresh(clip)
+
+    return _clip_read(clip)
 
 
 def _stream_body(body: StreamingBody) -> Iterator[bytes]:

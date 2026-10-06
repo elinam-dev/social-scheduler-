@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { api, ApiError, type ClipRead, type JobRead } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  type ClipRead,
+  type JobRead,
+  type Transcript,
+} from "@/lib/api";
 
 type UploadStage = "idle" | "creating" | "uploading" | "processing" | "succeeded" | "failed";
 
@@ -26,10 +32,19 @@ export default function Home() {
   const [job, setJob] = useState<JobRead | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [clips, setClips] = useState<ClipRead[] | null>(null);
+  const [editingClipId, setEditingClipId] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<Transcript | null>(null);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [trimStartSeconds, setTrimStartSeconds] = useState("");
+  const [trimEndSeconds, setTrimEndSeconds] = useState("");
+  const [trimSaving, setTrimSaving] = useState(false);
+  const [trimError, setTrimError] = useState<string | null>(null);
+  const [trimNotice, setTrimNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clipError, setClipError] = useState<string | null>(null);
   const [streamWarning, setStreamWarning] = useState<string | null>(null);
   const eventSource = useRef<EventSource | null>(null);
+  const transcriptRequestId = useRef(0);
 
   useEffect(() => () => eventSource.current?.close(), []);
 
@@ -43,6 +58,87 @@ export default function Home() {
           ? cause.message
           : "Could not load clips from the local API.",
       );
+    }
+  }
+
+  async function openTrimEditor(clip: ClipRead) {
+    const requestId = ++transcriptRequestId.current;
+    setEditingClipId(clip.id);
+    setTrimStartSeconds(String(clip.start_seconds));
+    setTrimEndSeconds(String(clip.end_seconds));
+    setTranscript(null);
+    setTranscriptLoading(true);
+    setTrimError(null);
+    setTrimNotice(null);
+
+    try {
+      const result = await api.getTranscript(clip.video_id);
+      if (requestId === transcriptRequestId.current) {
+        setTranscript(result);
+      }
+    } catch (cause) {
+      if (requestId === transcriptRequestId.current) {
+        setTrimError(
+          cause instanceof ApiError
+            ? cause.message
+            : "Could not load the transcript from the local API.",
+        );
+      }
+    } finally {
+      if (requestId === transcriptRequestId.current) {
+        setTranscriptLoading(false);
+      }
+    }
+  }
+
+  function closeTrimEditor() {
+    transcriptRequestId.current += 1;
+    setEditingClipId(null);
+    setTranscript(null);
+    setTranscriptLoading(false);
+  }
+
+  async function saveClipTrim(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const clip = clips?.find((candidate) => candidate.id === editingClipId);
+    const startSeconds = Number(trimStartSeconds);
+    const endSeconds = Number(trimEndSeconds);
+    if (!clip) {
+      setTrimError("Select a clip before saving its trim.");
+      return;
+    }
+    if (
+      !Number.isFinite(startSeconds) ||
+      !Number.isFinite(endSeconds) ||
+      startSeconds < 0 ||
+      endSeconds <= startSeconds
+    ) {
+      setTrimError("End time must be greater than the non-negative start time.");
+      return;
+    }
+
+    setTrimSaving(true);
+    setTrimError(null);
+    try {
+      const updated = await api.updateClipTrim(clip.id, {
+        start_seconds: startSeconds,
+        end_seconds: endSeconds,
+      });
+      setClips((current) =>
+        current?.map((item) => (item.id === updated.id ? updated : item)) ?? null,
+      );
+      closeTrimEditor();
+      setTrimNotice(
+        "Trim saved. Render the clip again to update its preview.",
+      );
+    } catch (cause) {
+      setTrimError(
+        cause instanceof ApiError
+          ? cause.message
+          : "Could not save the clip trim to the local API.",
+      );
+    } finally {
+      setTrimSaving(false);
     }
   }
 
@@ -60,6 +156,9 @@ export default function Home() {
     setVideoId(null);
     setClips(null);
     setClipError(null);
+    closeTrimEditor();
+    setTrimError(null);
+    setTrimNotice(null);
     setUploadProgress(0);
     setStage("creating");
 
@@ -131,6 +230,8 @@ export default function Home() {
             : stage === "failed"
               ? "This upload did not complete."
               : "Ready when you are.";
+  const editingClip =
+    clips?.find((clip) => clip.id === editingClipId) ?? null;
 
   return (
     <main className="flex min-h-screen flex-col bg-[#f5f3ee] text-[#1e2926]">
@@ -340,9 +441,148 @@ export default function Home() {
                       {" · "}
                       {Math.round(clip.end_seconds - clip.start_seconds)} sec
                     </p>
+                    <button
+                      className="mt-4 rounded-lg border border-[#d4d8d0] px-3 py-2 text-xs font-semibold text-[#397263] transition hover:bg-[#f5f8f4] disabled:opacity-50"
+                      disabled={trimSaving || clip.status === "rendering"}
+                      onClick={() => void openTrimEditor(clip)}
+                      type="button"
+                    >
+                      Edit trim
+                    </button>
                   </div>
                 </article>
               ))}
+            </div>
+          )}
+          {trimNotice && (
+            <p
+              className="mt-5 rounded-xl bg-[#e9f3ed] px-4 py-3 text-sm text-[#397263]"
+              role="status"
+            >
+              {trimNotice}
+            </p>
+          )}
+          {editingClipId && (
+            <div className="mt-6 rounded-2xl border border-[#dfe2db] bg-white p-5 sm:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold tracking-[0.16em] text-[#397263]">
+                    TRANSCRIPT TRIM
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold">
+                    {editingClip?.title ??
+                      `Clip ${editingClip?.rank ?? ""}`}
+                  </h3>
+                </div>
+                <button
+                  className="rounded-lg border border-[#d4d8d0] px-3 py-2 text-xs font-semibold text-[#64726b] disabled:opacity-50"
+                  disabled={trimSaving}
+                  onClick={closeTrimEditor}
+                  type="button"
+                >
+                  Close editor
+                </button>
+              </div>
+              {transcriptLoading && (
+                <p className="mt-4 text-sm text-[#64726b]">
+                  Loading transcript…
+                </p>
+              )}
+              {trimError && (
+                <p className="mt-4 text-sm text-red-700" role="alert">
+                  {trimError}
+                </p>
+              )}
+              {transcript && editingClip && (
+                <div className="mt-5 grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+                  <form className="space-y-4" onSubmit={saveClipTrim}>
+                    <p className="text-sm leading-6 text-[#64726b]">
+                      Set boundaries from transcript segments or enter exact
+                      seconds. The clip must remain within the source video.
+                    </p>
+                    <label className="block text-sm font-medium">
+                      Start time (seconds)
+                      <input
+                        className="mt-2 w-full rounded-lg border border-[#dfe2db] px-3 py-2"
+                        max={transcript.duration_seconds}
+                        min={0}
+                        onChange={(event) =>
+                          setTrimStartSeconds(event.target.value)
+                        }
+                        required
+                        step="0.01"
+                        type="number"
+                        value={trimStartSeconds}
+                      />
+                    </label>
+                    <label className="block text-sm font-medium">
+                      End time (seconds)
+                      <input
+                        className="mt-2 w-full rounded-lg border border-[#dfe2db] px-3 py-2"
+                        max={transcript.duration_seconds}
+                        min={0}
+                        onChange={(event) =>
+                          setTrimEndSeconds(event.target.value)
+                        }
+                        required
+                        step="0.01"
+                        type="number"
+                        value={trimEndSeconds}
+                      />
+                    </label>
+                    <button
+                      className="rounded-lg bg-[#194d40] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                      disabled={trimSaving}
+                      type="submit"
+                    >
+                      {trimSaving ? "Saving…" : "Save trim"}
+                    </button>
+                  </form>
+                  <div
+                    aria-label="Transcript boundary choices"
+                    className="max-h-96 space-y-3 overflow-y-auto rounded-xl bg-[#f7f8f5] p-4"
+                  >
+                    {transcript.segments.length === 0 ? (
+                      <p className="text-sm text-[#64726b]">
+                        No transcript segments are available.
+                      </p>
+                    ) : (
+                      transcript.segments.map((segment, index) => (
+                        <div
+                          className="border-b border-[#e4e8e1] pb-3 last:border-0"
+                          key={`${segment.start_seconds}-${index}`}
+                        >
+                          <p className="text-sm leading-6 text-[#35443e]">
+                            {segment.text}
+                          </p>
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              className="rounded-md border border-[#d4d8d0] bg-white px-2.5 py-1.5 text-xs font-medium text-[#397263]"
+                              onClick={() =>
+                                setTrimStartSeconds(
+                                  String(segment.start_seconds),
+                                )
+                              }
+                              type="button"
+                            >
+                              Set start {formatClipTime(segment.start_seconds)}
+                            </button>
+                            <button
+                              className="rounded-md border border-[#d4d8d0] bg-white px-2.5 py-1.5 text-xs font-medium text-[#397263]"
+                              onClick={() =>
+                                setTrimEndSeconds(String(segment.end_seconds))
+                              }
+                              type="button"
+                            >
+                              Set end {formatClipTime(segment.end_seconds)}
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </section>
