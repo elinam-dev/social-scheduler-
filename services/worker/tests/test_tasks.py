@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base, Job, Project, Video
 from clipper_worker import tasks
 from clipper_worker.media import MediaMetadata
+from clipper_worker.transcription import TranscriptionResult, TranscriptionSegment
 
 
 class FakeObjectStorage:
@@ -71,8 +72,15 @@ def test_process_video_updates_job_and_persists_metadata(
         return destination
 
     monkeypatch.setattr(tasks, "extract_audio", write_audio)
+    transcription_result = TranscriptionResult(
+        language="en",
+        language_probability=0.99,
+        duration_seconds=3,
+        segments=(TranscriptionSegment(0, 3, "An example transcript."),),
+    )
+    monkeypatch.setattr(tasks, "transcribe_audio", lambda _path: transcription_result)
 
-    tasks.process_video(str(video_id), str(job_id))
+    result = tasks.process_video(str(video_id), str(job_id))
 
     with Session(engine) as session:
         stored_video = session.get(Video, video_id)
@@ -87,6 +95,7 @@ def test_process_video_updates_job_and_persists_metadata(
         assert stored_job.status == "succeeded"
         assert stored_job.progress == 100
     assert storage.uploads == {f"{project_id}/{video_id}/audio.wav": b"wav bytes"}
+    assert result == transcription_result
 
 
 def test_failure_handler_marks_job_and_video_failed(

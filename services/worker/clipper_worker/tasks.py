@@ -10,11 +10,12 @@ from app.db.models import Job, Video
 from app.db.session import SessionLocal
 from app.storage import get_object_storage
 from clipper_worker.media import AudioExtractionError, extract_audio, probe_media
+from clipper_worker.transcription import TranscriptionResult, transcribe_audio
 
 logger = logging.getLogger(__name__)
 
 
-def process_video(video_id: str, job_id: str) -> None:
+def process_video(video_id: str, job_id: str) -> TranscriptionResult:
     video_uuid = uuid.UUID(video_id)
     job_uuid = uuid.UUID(job_id)
     with SessionLocal() as session:
@@ -24,8 +25,6 @@ def process_video(video_id: str, job_id: str) -> None:
             raise LookupError(
                 f"Video or processing job not found: {video_id}, {job_id}"
             )
-        if job.status == "succeeded":
-            return
         source_key = video.object_key
         filename_suffix = Path(video.original_filename).suffix or ".video"
         audio_key = f"{video.project_id}/{video.id}/audio.wav"
@@ -48,6 +47,7 @@ def process_video(video_id: str, job_id: str) -> None:
         extract_audio(source_path, audio_path)
         with audio_path.open("rb") as audio_file:
             storage.upload_file(audio_file, audio_key, "audio/wav")
+        transcription = transcribe_audio(audio_path)
 
     with SessionLocal() as session:
         video = session.get(Video, video_uuid)
@@ -67,6 +67,7 @@ def process_video(video_id: str, job_id: str) -> None:
         job.completed_at = datetime.now(UTC)
         session.commit()
     logger.info("Finished processing video %s", video_id)
+    return transcription
 
 
 def mark_job_failed(

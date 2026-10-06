@@ -2,6 +2,8 @@ FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PIP_DEFAULT_TIMEOUT=180 \
+    PIP_RETRIES=5 \
     REDIS_URL=redis://redis:6379/0
 
 RUN apt-get update \
@@ -9,6 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /usr/sbin/nologin app
+RUN mkdir /models && chown app:app /models
 
 WORKDIR /app
 

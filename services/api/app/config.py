@@ -13,3 +13,4 @@ class Settings(BaseSettings):
     object_storage_access_key: str = "clipper"
     object_storage_secret_key: str = "clipper-dev-password"
     object_storage_bucket: str = "videos"
+    whisper_model: str = "small"

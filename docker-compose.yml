@@ -90,7 +90,11 @@ services:
       CLIPPER_OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-clipper}
       CLIPPER_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-clipper-dev-password}
       CLIPPER_OBJECT_STORAGE_BUCKET: ${CLIPPER_OBJECT_STORAGE_BUCKET:-videos}
+      CLIPPER_WHISPER_MODEL: ${CLIPPER_WHISPER_MODEL:-small}
+      HF_HOME: /models
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      - whisper_models:/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,3 +108,4 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  whisper_models:
