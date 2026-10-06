@@ -79,6 +79,10 @@ a blurred-background fit and a split-screen layout that stacks the source's left
 and right halves into separate panels. The face-following crop renderer also
 offers 9:16 (1080x1920), 1:1 (1080x1080), and 16:9 (1920x1080) exports.
 
+Caption chunks are generated from word timestamps, splitting at sentence ends,
+long pauses, speaker changes, and configurable word or duration limits. Each
+chunk retains its original timed words for subtitle rendering and highlighting.
+
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
 Compose service and download the configured model with:
