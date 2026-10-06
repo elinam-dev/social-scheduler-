@@ -74,7 +74,9 @@ speaking; inspect associations for multi-person shots. A smoothed crop path can
 follow a selected face track, emitting even-pixel, in-bounds crop rectangles at
 each detected timestamp for vertical output. FFmpeg can render a clip through
 that timestamp-interpolated path to 9:16 H.264/AAC MP4, retaining trimmed audio
-when present.
+when present. If no reliable face crop is available, the renderer also supports
+a blurred-background fit and a split-screen layout that stacks the source's left
+and right halves into separate panels.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
