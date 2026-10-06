@@ -76,7 +76,8 @@ each detected timestamp for vertical output. FFmpeg can render a clip through
 that timestamp-interpolated path to 9:16 H.264/AAC MP4, retaining trimmed audio
 when present. If no reliable face crop is available, the renderer also supports
 a blurred-background fit and a split-screen layout that stacks the source's left
-and right halves into separate panels.
+and right halves into separate panels. The face-following crop renderer also
+offers 9:16 (1080x1920), 1:1 (1080x1080), and 16:9 (1920x1080) exports.
 
 Clip-selection LLM clients are configured through `CLIPPER_LLM_PROVIDER` and
 `CLIPPER_LLM_MODEL`. The default provider is local Ollama. Start the optional
