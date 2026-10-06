@@ -322,11 +322,18 @@ export default function Home() {
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="font-semibold">
-                        Clip {clip.rank ?? index + 1}
+                        {clip.title ?? `Clip ${clip.rank ?? index + 1}`}
                       </h3>
-                      <span className="shrink-0 rounded-full bg-[#e9f3ed] px-2.5 py-1 text-xs font-semibold text-[#397263]">
-                        {clip.status}
-                      </span>
+                      <div className="flex shrink-0 gap-2">
+                        <span className="rounded-full bg-[#f1f2ef] px-2.5 py-1 text-xs font-medium text-[#64726b]">
+                          {clip.status}
+                        </span>
+                        <span className="rounded-full bg-[#e9f3ed] px-2.5 py-1 text-xs font-semibold text-[#397263]">
+                          {clip.score === null
+                            ? "Unscored"
+                            : `${Math.round(clip.score * 100)}% score`}
+                        </span>
+                      </div>
                     </div>
                     <p className="mt-2 text-xs text-[#78847d]">
                       {formatClipTime(clip.start_seconds)}–{formatClipTime(clip.end_seconds)}

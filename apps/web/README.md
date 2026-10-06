@@ -20,8 +20,9 @@ Open `http://localhost:3000`. Requests to `/backend-api/*` are proxied by Next.j
 to `CLIPPER_API_SERVER_URL`, avoiding browser CORS configuration. The API client
 is in `src/lib/api.ts`. The upload page creates a project, uploads its video,
 then listens to the job event stream until processing succeeds or fails. Once
-processing succeeds, the page loads saved clips and plays ready previews from
-the local API. Videos without saved clips show an empty state.
+processing succeeds, the page loads saved clips, displays their titles and
+scores, and plays ready previews from the local API. Videos without saved clips
+show an empty state.
 
 Check the app with:
 
