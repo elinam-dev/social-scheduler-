@@ -20,3 +20,7 @@
 - Step 56 uses the saved clip title as an optional first-2.5-second hook overlay.
   B-roll insertion is deferred because the project has no rights-cleared B-roll
   asset model or selection UI; it must not source footage implicitly.
+- Step 57 does not add scheduled publishing. No target social platform has been
+  selected, and publishing requires platform-specific OAuth, account consent,
+  and API/policy integration beyond local clip generation. Clips remain
+  downloadable for manual posting; revisit scheduling when a provider is chosen.
