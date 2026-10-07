@@ -66,7 +66,7 @@ services:
       CLIPPER_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-clipper-dev-password}
       CLIPPER_OBJECT_STORAGE_BUCKET: ${CLIPPER_OBJECT_STORAGE_BUCKET:-videos}
     ports:
-      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
+      - "${HOST_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8001}:8000"
     healthcheck:
       test:
         [
