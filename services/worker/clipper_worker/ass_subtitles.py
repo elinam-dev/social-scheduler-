@@ -48,27 +48,26 @@ def build_ass_subtitles(
     events: list[str] = []
     if hook_text is not None:
         normalized_hook = hook_text.strip()
-        if not normalized_hook:
-            raise ValueError("Hook text must not be blank")
-        if len(normalized_hook) > 120:
-            raise ValueError("Hook text must not exceed 120 characters")
-        overlay_duration = min(
-            2.5,
-            (
-                clip_end_seconds - clip_start_seconds
-                if clip_end_seconds is not None
-                else 2.5
-            ),
-        )
-        overlay_font_size = max(32, round(style.font_size * 0.75))
-        overlay_position = (play_res_x // 2, max(1, round(play_res_y * 0.08)))
-        overlay_text = _escape_ass_text(normalized_hook)
-        events.append(
-            f"Dialogue: 1,0:00:00.00,{_format_ass_time(overlay_duration)},"
-            f"{style.name},,0,0,0,,"
-            f"{{\\q0\\an8\\pos({overlay_position[0]},{overlay_position[1]})"
-            f"\\fs{overlay_font_size}\\b1\\bord3\\shad2}}{overlay_text}"
-        )
+        if normalized_hook:
+            if len(normalized_hook) > 120:
+                raise ValueError("Hook text must not exceed 120 characters")
+            overlay_duration = min(
+                2.5,
+                (
+                    clip_end_seconds - clip_start_seconds
+                    if clip_end_seconds is not None
+                    else 2.5
+                ),
+            )
+            overlay_font_size = max(32, round(style.font_size * 0.75))
+            overlay_position = (play_res_x // 2, max(1, round(play_res_y * 0.08)))
+            overlay_text = _escape_ass_text(normalized_hook)
+            events.append(
+                f"Dialogue: 1,0:00:00.00,{_format_ass_time(overlay_duration)},"
+                f"{style.name},,0,0,0,,"
+                f"{{\\q0\\an8\\pos({overlay_position[0]},{overlay_position[1]})"
+                f"\\fs{overlay_font_size}\\b1\\bord3\\shad2}}{overlay_text}"
+            )
 
     for chunk in chunks:
         if (

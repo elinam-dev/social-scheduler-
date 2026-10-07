@@ -191,7 +191,7 @@ def test_build_ass_subtitles_escapes_hook_text_and_rejects_invalid_length() -> N
     ass = build_ass_subtitles([], hook_text="Why {this}\nmatters?")
 
     assert r"{\q0\an8\pos(540,154)\fs48\b1\bord3\shad2}Why \{this\}\Nmatters?" in ass
-    with pytest.raises(ValueError, match="must not be blank"):
-        build_ass_subtitles([], hook_text="  ")
+    empty_hook = build_ass_subtitles([], hook_text="  ")
+    assert "Dialogue: 1," not in empty_hook
     with pytest.raises(ValueError, match="120 characters"):
         build_ass_subtitles([], hook_text="h" * 121)
