@@ -11,6 +11,7 @@ from app.api.routes.projects import get_object_storage, get_queue
 from app.db import Base, Job, Project, Video
 from app.db.session import get_session
 from app.main import app
+from app.queue import JOB_RETRY_POLICY
 
 
 class FakeObjectStorage:
@@ -100,6 +101,7 @@ def test_project_upload_persists_metadata_and_stores_file(tmp_path) -> None:
     assert function == "clipper_worker.tasks.process_video"
     assert args == (video["id"], job["id"])
     assert options["job_id"] == job["id"]
+    assert options["retry"] == JOB_RETRY_POLICY
     assert isinstance(options["on_failure"], Callback)
     assert options["on_failure"].name == "clipper_worker.tasks.mark_job_failed"
     assert len(storage.uploads) == 1
@@ -192,6 +194,7 @@ def test_project_url_ingest_requires_rights_and_queues_download(tmp_path) -> Non
         "https://video.example/watch?id=owned",
     )
     assert options["job_id"] == result["job"]["id"]
+    assert options["retry"] == JOB_RETRY_POLICY
     assert isinstance(options["on_failure"], Callback)
     assert options["on_failure"].name == "clipper_worker.tasks.mark_job_failed"
 

@@ -374,6 +374,14 @@ def mark_job_failed(
     exc_value: BaseException,
     _traceback: object,
 ) -> None:
+    if rq_job.retries_left is not None and rq_job.retries_left > 0:
+        logger.warning(
+            "Video processing job %s failed; %s retries remain",
+            rq_job.id,
+            rq_job.retries_left,
+        )
+        return
+
     video_id = uuid.UUID(rq_job.args[0])
     job_id = uuid.UUID(rq_job.args[1])
     with SessionLocal() as session:
@@ -398,6 +406,14 @@ def mark_clip_render_failed(
     exc_value: BaseException,
     _traceback: object,
 ) -> None:
+    if rq_job.retries_left is not None and rq_job.retries_left > 0:
+        logger.warning(
+            "Clip render job %s failed; %s retries remain",
+            rq_job.id,
+            rq_job.retries_left,
+        )
+        return
+
     clip_id = uuid.UUID(rq_job.args[0])
     job_id = uuid.UUID(rq_job.args[1])
     with SessionLocal() as session:

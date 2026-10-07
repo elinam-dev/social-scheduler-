@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Clip, Job, Video
 from app.db.session import get_session
-from app.queue import get_queue
+from app.queue import JOB_RETRY_POLICY, get_queue
 from app.schemas.clip import (
     ClipCaptionStyleUpdate,
     ClipRead,
@@ -198,6 +198,7 @@ def render_clip(
             str(job.id),
             job_id=job.rq_job_id,
             job_timeout=21600,
+            retry=JOB_RETRY_POLICY,
             on_failure=Callback("clipper_worker.tasks.mark_clip_render_failed"),
         )
     except RedisError as error:

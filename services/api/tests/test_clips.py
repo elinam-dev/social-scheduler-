@@ -14,7 +14,7 @@ from app.api.routes.clips import get_object_storage
 from app.db import Base, Clip, Job, Project, Video
 from app.db.session import get_session
 from app.main import app
-from app.queue import get_queue
+from app.queue import JOB_RETRY_POLICY, get_queue
 
 
 class FakeQueue:
@@ -283,6 +283,7 @@ def test_clip_list_and_preview_routes(tmp_path) -> None:
     assert function == "clipper_worker.tasks.render_clip_job"
     assert args == (str(ready_clip_id), render_job.json()["id"])
     assert options["job_id"] == render_job.json()["id"]
+    assert options["retry"] == JOB_RETRY_POLICY
     assert isinstance(options["on_failure"], Callback)
     assert options["on_failure"].name == "clipper_worker.tasks.mark_clip_render_failed"
     assert missing_clip.status_code == 404

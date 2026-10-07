@@ -1,5 +1,8 @@
 import sys
+import tempfile
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -267,7 +270,11 @@ def test_failure_handler_marks_job_and_video_failed(
         session.commit()
 
     monkeypatch.setattr(tasks, "SessionLocal", session_factory)
-    rq_job = SimpleNamespace(id=str(job_id), args=(str(video_id), str(job_id)))
+    rq_job = SimpleNamespace(
+        id=str(job_id),
+        args=(str(video_id), str(job_id)),
+        retries_left=0,
+    )
 
     tasks.mark_job_failed(
         rq_job,
@@ -285,6 +292,144 @@ def test_failure_handler_marks_job_and_video_failed(
         assert stored_video.status == "failed"
         assert stored_job.status == "failed"
         assert stored_job.error_message == "ffprobe failed"
+
+
+@pytest.mark.parametrize(
+    ("failure_handler", "target_id"),
+    [
+        (tasks.mark_job_failed, "video"),
+        (tasks.mark_clip_render_failed, "clip"),
+    ],
+)
+def test_failure_handler_preserves_running_state_while_retrying(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_handler,
+    target_id: str,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / f'retrying-{target_id}.db'}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    project_id = uuid.uuid4()
+    video_id = uuid.uuid4()
+    clip_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    with session_factory() as session:
+        project = Project(id=project_id, name="Interview")
+        video = Video(
+            id=video_id,
+            project=project,
+            original_filename="episode.mp4",
+            object_key="source-object",
+            size_bytes=12,
+            status="processing",
+        )
+        clip = Clip(
+            id=clip_id,
+            video=video,
+            start_seconds=1,
+            end_seconds=2,
+            status="rendering",
+        )
+        job = Job(
+            id=job_id,
+            project_id=project_id,
+            video=video,
+            job_type="process_video" if target_id == "video" else "render_clip",
+            rq_job_id=str(job_id),
+            status="running",
+        )
+        session.add_all([project, video, clip, job])
+        session.commit()
+
+    monkeypatch.setattr(tasks, "SessionLocal", session_factory)
+    entity_id = video_id if target_id == "video" else clip_id
+    rq_job = SimpleNamespace(
+        id=str(job_id),
+        args=(str(entity_id), str(job_id)),
+        retries_left=2,
+    )
+    failure_handler(
+        rq_job,
+        object(),
+        RuntimeError,
+        RuntimeError("temporary worker failure"),
+        None,
+    )
+
+    with Session(engine) as session:
+        stored_video = session.get(Video, video_id)
+        stored_clip = session.get(Clip, clip_id)
+        stored_job = session.get(Job, job_id)
+        assert stored_video is not None
+        assert stored_clip is not None
+        assert stored_job is not None
+        assert stored_video.status == "processing"
+        assert stored_clip.status == "rendering"
+        assert stored_job.status == "running"
+        assert stored_job.error_message is None
+
+
+def test_process_video_cleans_temporary_files_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'temp-cleanup.db'}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    project_id = uuid.uuid4()
+    video_id = uuid.uuid4()
+    job_id = uuid.uuid4()
+    with session_factory() as session:
+        project = Project(id=project_id, name="Interview")
+        video = Video(
+            id=video_id,
+            project=project,
+            original_filename="episode.mp4",
+            object_key="source-object",
+            size_bytes=12,
+        )
+        job = Job(
+            id=job_id,
+            project_id=project_id,
+            video=video,
+            job_type="process_video",
+            rq_job_id=str(job_id),
+        )
+        session.add_all([project, video, job])
+        session.commit()
+
+    storage = FakeObjectStorage()
+    created_directories: list[Path] = []
+    original_temporary_directory = tempfile.TemporaryDirectory
+
+    @contextmanager
+    def track_temporary_directory(*, prefix: str) -> Iterator[str]:
+        with original_temporary_directory(prefix=prefix) as directory:
+            created_directories.append(Path(directory))
+            yield directory
+
+    monkeypatch.setattr(tasks, "SessionLocal", session_factory)
+    monkeypatch.setattr(tasks, "get_object_storage", lambda: storage)
+    monkeypatch.setattr(
+        tasks.tempfile,
+        "TemporaryDirectory",
+        track_temporary_directory,
+    )
+
+    def fail_probe(_path: Path) -> MediaMetadata:
+        raise RuntimeError("ffprobe failed")
+
+    monkeypatch.setattr(
+        tasks,
+        "probe_media",
+        fail_probe,
+    )
+
+    with pytest.raises(RuntimeError, match="ffprobe failed"):
+        tasks.process_video(str(video_id), str(job_id))
+
+    assert len(created_directories) == 1
+    assert not created_directories[0].exists()
 
 
 def test_render_clip_job_burns_saved_style_and_replaces_preview(
@@ -447,7 +592,11 @@ def test_clip_render_failure_handler_marks_clip_and_job_failed(
         session.commit()
 
     monkeypatch.setattr(tasks, "SessionLocal", session_factory)
-    rq_job = SimpleNamespace(id=str(job_id), args=(str(clip_id), str(job_id)))
+    rq_job = SimpleNamespace(
+        id=str(job_id),
+        args=(str(clip_id), str(job_id)),
+        retries_left=0,
+    )
     tasks.mark_clip_render_failed(
         rq_job,
         object(),

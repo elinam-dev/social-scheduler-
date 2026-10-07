@@ -48,6 +48,11 @@ inside the worker, and only publicly reachable HTTP(S) hosts are accepted.
 The upload response includes both the saved video and its queued job. Job states
 are `queued`, `running`, `succeeded`, and `failed`; processing records duration,
 dimensions, frame rate, and the MinIO key for extracted 16 kHz mono WAV audio.
+Processing and rendering jobs retry up to twice after failures, waiting 30
+seconds before the first retry and 120 seconds before the second. Failures are
+shown as terminal only after retries are exhausted. Worker-local download,
+transcription, and rendering files are stored in temporary directories and
+removed when each task exits, including on failure.
 The web app receives browser upload progress and then subscribes to
 `GET /jobs/{job_id}/events`, a server-sent event stream that emits job updates
 until processing succeeds or fails. Clients can also poll `GET /jobs/{job_id}`.
