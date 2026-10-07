@@ -19,6 +19,12 @@ The GPU override builds CUDA 12.8 PyTorch and exposes available GPUs to the
 worker; Whisper and pyannote automatically select CUDA when detected. Use the
 default Compose command on CPU-only machines.
 
+The worker handles one queued job at a time. To process queued videos and clip
+renders concurrently, set `CLIPPER_WORKER_REPLICAS=2` (or another value) in
+`.env` and run `docker compose up -d --build worker`. Each replica can load its
+own Whisper and diarization models, so increase this only when the machine has
+enough RAM or GPU memory. The default is one replica.
+
 The Next.js web app lives in `apps/web`. Run `npm ci`, copy
 `apps/web/env.local.example` to `apps/web/.env.local`, then run `npm run dev` from
 `apps/web`. The web server

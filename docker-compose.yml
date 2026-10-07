@@ -89,6 +89,8 @@ services:
     restart: unless-stopped
 
   worker:
+    deploy:
+      replicas: ${CLIPPER_WORKER_REPLICAS:-1}
     build:
       context: .
       dockerfile: services/worker/Dockerfile
