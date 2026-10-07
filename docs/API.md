@@ -141,7 +141,10 @@ highlighting driven by the original word timing. Callers can optionally pass
 keywords for case-insensitive color emphasis and an explicit keyword-to-emoji
 mapping; no emoji are inserted by default. Renderers accept an ASS subtitle path
 to burn captions into regular trims, face-following exports, or either fallback
-layout. Custom styles use strict version-1 JSON; the checked-in
+layout. When a rendered clip has a saved title, it is also displayed as a top-centered
+hook overlay for up to the first 2.5 seconds; the overlay is omitted when the
+title is empty.
+Custom styles use strict version-1 JSON; the checked-in
 `services/worker/caption-templates/word-highlight.json` is an example and can be
 loaded with the worker's caption style loader.
 

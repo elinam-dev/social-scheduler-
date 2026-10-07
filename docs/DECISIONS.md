@@ -17,3 +17,6 @@
   and sampled face detections, with greedy one-to-one speaker/track assignment.
   It does not analyze lip motion and cannot identify the active speaker reliably
   when multiple people remain visible; the result is a reviewable heuristic.
+- Step 56 uses the saved clip title as an optional first-2.5-second hook overlay.
+  B-roll insertion is deferred because the project has no rights-cleared B-roll
+  asset model or selection UI; it must not source footage implicitly.

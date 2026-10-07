@@ -488,6 +488,7 @@ def test_render_clip_job_burns_saved_style_and_replaces_preview(
             start_seconds=0,
             end_seconds=5,
             rank=1,
+            title="A helpful title",
             object_key="previous-render.mp4",
             aspect_ratio="1:1",
             status="rendering",
@@ -552,6 +553,7 @@ def test_render_clip_job_burns_saved_style_and_replaces_preview(
     assert render_call["output_height"] == 1080
     assert "Style: WordHighlight" in str(render_call["subtitle"])
     assert r"{\k100}" in str(render_call["subtitle"])
+    assert "A helpful title" in str(render_call["subtitle"])
 
 
 def test_clip_render_failure_handler_marks_clip_and_job_failed(

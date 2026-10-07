@@ -170,3 +170,28 @@ def test_build_ass_subtitles_returns_valid_empty_events_section() -> None:
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
         "Effect, Text\n"
     )
+
+
+def test_build_ass_subtitles_adds_optional_hook_overlay() -> None:
+    ass = build_ass_subtitles(
+        [_chunk(10, 11, "caption text")],
+        hook_text="  The big moment  ",
+        clip_start_seconds=10,
+        clip_end_seconds=11,
+    )
+
+    assert (
+        r"Dialogue: 1,0:00:00.00,0:00:01.00,Default,,0,0,0,,"
+        r"{\q0\an8\pos(540,154)\fs48\b1\bord3\shad2}The big moment"
+    ) in ass
+    assert "Dialogue: 0,0:00:00.00,0:00:01.00,Default" in ass
+
+
+def test_build_ass_subtitles_escapes_hook_text_and_rejects_invalid_length() -> None:
+    ass = build_ass_subtitles([], hook_text="Why {this}\nmatters?")
+
+    assert r"{\q0\an8\pos(540,154)\fs48\b1\bord3\shad2}Why \{this\}\Nmatters?" in ass
+    with pytest.raises(ValueError, match="must not be blank"):
+        build_ass_subtitles([], hook_text="  ")
+    with pytest.raises(ValueError, match="120 characters"):
+        build_ass_subtitles([], hook_text="h" * 121)

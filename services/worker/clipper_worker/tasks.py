@@ -260,6 +260,7 @@ def render_clip_job(clip_id: str, job_id: str) -> str:
         end_seconds = clip.end_seconds
         aspect_ratio = clip.aspect_ratio
         caption_style_name = clip.caption_style
+        hook_text = clip.title
         previous_object_key = clip.object_key
         transcript_data = video.transcript
         clip.status = "rendering"
@@ -306,6 +307,7 @@ def render_clip_job(clip_id: str, job_id: str) -> str:
         clip_start_seconds=start_seconds,
         clip_end_seconds=end_seconds,
         style=style,
+        hook_text=hook_text,
     )
 
     storage = get_object_storage()
