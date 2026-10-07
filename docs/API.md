@@ -168,3 +168,9 @@ records include the HTTP method, path, status code, and duration; worker
 duration in milliseconds. Exception records include the exception type and
 traceback. URL strings in log messages and tracebacks are redacted, and HTTP
 request records omit query strings.
+
+The integration test `services/worker/tests/test_pipeline_integration.py`
+exercises upload, queued transcription, clip rendering, job status updates, and
+clip download using local in-memory storage and mocked model inference. It is
+included in `make test`; to run it alone, execute
+`pytest tests/test_pipeline_integration.py` from `services/worker`.
