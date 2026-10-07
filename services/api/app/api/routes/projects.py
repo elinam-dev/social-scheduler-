@@ -17,7 +17,7 @@ from app.db.session import get_session
 from app.queue import get_queue
 from app.schemas.job import JobRead, VideoUploadResponse
 from app.schemas.project import ProjectCreate, ProjectRead
-from app.schemas.video import VideoRead
+from app.schemas.video import VideoRead, VideoUrlIngest
 from app.storage import ObjectStorage, get_object_storage
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,76 @@ def upload_video(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Video was uploaded, but its processing job could not be queued",
+        ) from error
+
+    return VideoUploadResponse(
+        video=VideoRead.model_validate(video),
+        job=JobRead.model_validate(job),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/videos/url",
+    response_model=VideoUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_video_url(
+    project_id: uuid.UUID,
+    request: VideoUrlIngest,
+    session: Session = Depends(get_session),
+    queue: Queue = Depends(get_queue),
+) -> VideoUploadResponse:
+    project = session.scalar(select(Project).where(Project.id == project_id))
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    object_key = f"{project_id}/{uuid.uuid4().hex}"
+    video = Video(
+        project_id=project_id,
+        original_filename="video",
+        object_key=object_key,
+        size_bytes=0,
+    )
+    job_id = uuid.uuid4()
+    job = Job(
+        id=job_id,
+        project_id=project_id,
+        video=video,
+        job_type="process_video",
+        rq_job_id=str(job_id),
+    )
+    try:
+        session.add(video)
+        session.add(job)
+        session.commit()
+        session.refresh(video)
+        session.refresh(job)
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+
+    try:
+        queue.enqueue(
+            "clipper_worker.tasks.process_video",
+            str(video.id),
+            str(job.id),
+            str(request.url),
+            job_id=job.rq_job_id,
+            job_timeout=21600,
+            on_failure=Callback("clipper_worker.tasks.mark_job_failed"),
+        )
+    except RedisError as error:
+        video.status = "failed"
+        job.status = "failed"
+        job.error_message = "Could not submit video processing job to Redis"
+        job.completed_at = datetime.now(UTC)
+        session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Video URL was accepted, but its processing job could not be queued",
         ) from error
 
     return VideoUploadResponse(

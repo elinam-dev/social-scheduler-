@@ -64,6 +64,11 @@ export interface VideoUploadResponse {
   job: JobRead;
 }
 
+export interface VideoUrlIngest {
+  url: string;
+  rights_confirmed: boolean;
+}
+
 export interface TranscriptWord {
   start_seconds: number;
   end_seconds: number;
@@ -207,6 +212,20 @@ export const api = {
       });
       xhr.send(formData);
     });
+  },
+
+  ingestVideoUrl(
+    projectId: string,
+    input: VideoUrlIngest,
+  ): Promise<VideoUploadResponse> {
+    return request<VideoUploadResponse>(
+      `/projects/${encodeURIComponent(projectId)}/videos/url`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
   },
 
   jobEventsUrl(jobId: string): string {

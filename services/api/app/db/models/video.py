@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 class Video(Base):
     __tablename__ = "videos"
     __table_args__ = (
-        CheckConstraint("size_bytes > 0", name="ck_videos_size_positive"),
+        CheckConstraint("size_bytes >= 0", name="ck_videos_size_nonnegative"),
         CheckConstraint(
             "duration_seconds IS NULL OR duration_seconds >= 0",
             name="ck_videos_duration_nonnegative",

@@ -1,8 +1,12 @@
 import logging
+import mimetypes
+import socket
 import tempfile
 import uuid
 from datetime import UTC, datetime
+from ipaddress import ip_address
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from botocore.exceptions import BotoCoreError, ClientError
 from rq.job import Job as RQJob
@@ -28,7 +32,11 @@ from clipper_worker.transcription import (
 logger = logging.getLogger(__name__)
 
 
-def process_video(video_id: str, job_id: str) -> TranscriptionResult:
+def process_video(
+    video_id: str,
+    job_id: str,
+    source_url: str | None = None,
+) -> TranscriptionResult:
     video_uuid = uuid.UUID(video_id)
     job_uuid = uuid.UUID(job_id)
     with SessionLocal() as session:
@@ -51,9 +59,35 @@ def process_video(video_id: str, job_id: str) -> TranscriptionResult:
     storage = get_object_storage()
     with tempfile.TemporaryDirectory(prefix="clipper-") as temporary_directory:
         workdir = Path(temporary_directory)
-        source_path = workdir / f"source{filename_suffix}"
         audio_path = workdir / "audio.wav"
-        storage.download_file(source_key, source_path)
+        if source_url is None:
+            source_path = workdir / f"source{filename_suffix}"
+            storage.download_file(source_key, source_path)
+        else:
+            source_path = _download_video_url(source_url, workdir)
+            filename_suffix = source_path.suffix or filename_suffix
+            try:
+                with source_path.open("rb") as source_file:
+                    storage.upload_file(
+                        source_file,
+                        source_key,
+                        mimetypes.guess_type(source_path.name)[0],
+                    )
+                with SessionLocal() as session:
+                    video = session.get(Video, video_uuid)
+                    if video is None:
+                        raise LookupError(f"Video not found: {video_id}")
+                    video.original_filename = source_path.name
+                    video.content_type = mimetypes.guess_type(source_path.name)[0]
+                    video.size_bytes = source_path.stat().st_size
+                    session.commit()
+            except (BotoCoreError, ClientError, SQLAlchemyError):
+                _delete_render_object(
+                    storage,
+                    source_key,
+                    "Failed to clean up URL-ingested source",
+                )
+                raise
         metadata = probe_media(source_path)
         if not metadata.has_audio:
             raise AudioExtractionError("Video does not contain an audio stream")
@@ -90,6 +124,107 @@ def process_video(video_id: str, job_id: str) -> TranscriptionResult:
         session.commit()
     logger.info("Finished processing video %s", video_id)
     return transcription
+
+
+def _validate_public_source_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Video URL must use HTTP or HTTPS and include a hostname")
+    if parsed.username or parsed.password:
+        raise ValueError("Video URL credentials are not allowed")
+
+    hostname = parsed.hostname.lower().rstrip(".")
+    if hostname == "localhost" or hostname.endswith(
+        (".localhost", ".local", ".internal")
+    ):
+        raise ValueError("Video URL host must be publicly reachable")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError("Video URL contains an invalid port") from error
+
+    try:
+        address = ip_address(hostname)
+    except ValueError:
+        try:
+            addresses = {
+                ip_address(result[4][0])
+                for result in socket.getaddrinfo(
+                    hostname,
+                    port
+                    if port is not None
+                    else (443 if parsed.scheme == "https" else 80),
+                    type=socket.SOCK_STREAM,
+                )
+            }
+        except OSError as error:
+            raise ValueError("Video URL hostname could not be resolved") from error
+    else:
+        addresses = {address}
+
+    if not addresses or any(not address.is_global for address in addresses):
+        raise ValueError("Video URL host must resolve only to public IP addresses")
+
+
+def _download_video_url(url: str, destination: Path) -> Path:
+    _validate_public_source_url(url)
+    try:
+        from yt_dlp import YoutubeDL
+    except ImportError as error:
+        raise RuntimeError("URL ingestion requires yt-dlp in the worker") from error
+
+    options = {
+        "format": "bestvideo+bestaudio/best",
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "no_progress": True,
+        "no_warnings": True,
+        "outtmpl": str(destination / "source.%(ext)s"),
+        "quiet": True,
+        "restrictfilenames": True,
+    }
+    with YoutubeDL(options) as downloader:
+        info = downloader.extract_info(url, download=True)
+        if not isinstance(info, dict):
+            raise RuntimeError("yt-dlp did not return video metadata")
+        candidates: list[str] = []
+        for value in (info.get("filepath"), downloader.prepare_filename(info)):
+            if isinstance(value, str):
+                candidates.append(value)
+        requested_downloads = info.get("requested_downloads")
+        if isinstance(requested_downloads, list):
+            candidates.extend(
+                download["filepath"]
+                for download in requested_downloads
+                if isinstance(download, dict)
+                and isinstance(download.get("filepath"), str)
+            )
+
+    destination_root = destination.resolve()
+    for filename in candidates:
+        path = Path(filename)
+        if not path.is_absolute():
+            path = destination / path
+        resolved_path = path.resolve()
+        try:
+            resolved_path.relative_to(destination_root)
+        except ValueError as error:
+            raise RuntimeError(
+                "yt-dlp output escaped its temporary directory"
+            ) from error
+        if resolved_path.is_file():
+            return resolved_path
+
+    video_files = sorted(
+        path
+        for path in destination.glob("source.*")
+        if path.is_file()
+        and path.suffix.lower()
+        in {".avi", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".ts", ".webm"}
+    )
+    if len(video_files) == 1:
+        return video_files[0]
+    raise RuntimeError("yt-dlp did not produce one final video file")
 
 
 def render_clip_job(clip_id: str, job_id: str) -> str:

@@ -10,9 +10,17 @@ import {
   type ClipRead,
   type JobRead,
   type Transcript,
+  type VideoUploadResponse,
 } from "@/lib/api";
 
-type UploadStage = "idle" | "creating" | "uploading" | "processing" | "succeeded" | "failed";
+type UploadStage =
+  | "idle"
+  | "creating"
+  | "uploading"
+  | "submitting"
+  | "processing"
+  | "succeeded"
+  | "failed";
 
 const CAPTION_STYLE_OPTIONS: {
   value: CaptionStyleName;
@@ -50,6 +58,9 @@ function formatClipTime(seconds: number): string {
 export default function Home() {
   const [projectName, setProjectName] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [sourceType, setSourceType] = useState<"file" | "url">("file");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [stage, setStage] = useState<UploadStage>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [job, setJob] = useState<JobRead | null>(null);
@@ -258,8 +269,16 @@ export default function Home() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!file) {
+    if (sourceType === "file" && !file) {
       setError("Choose a video file to upload.");
+      return;
+    }
+    if (sourceType === "url" && !videoUrl.trim()) {
+      setError("Enter a supported video URL.");
+      return;
+    }
+    if (sourceType === "url" && !rightsConfirmed) {
+      setError("Confirm that you own or have permission to process this video.");
       return;
     }
 
@@ -283,8 +302,20 @@ export default function Home() {
 
     try {
       const project = await api.createProject({ name: projectName.trim() });
-      setStage("uploading");
-      const result = await api.uploadVideo(project.id, file, setUploadProgress);
+      let result: VideoUploadResponse;
+      if (sourceType === "file") {
+        setStage("uploading");
+        if (!file) {
+          throw new Error("Choose a video file to upload.");
+        }
+        result = await api.uploadVideo(project.id, file, setUploadProgress);
+      } else {
+        setStage("submitting");
+        result = await api.ingestVideoUrl(project.id, {
+          url: videoUrl.trim(),
+          rights_confirmed: true,
+        });
+      }
       setJob(result.job);
       setVideoId(result.video.id);
 
@@ -325,7 +356,7 @@ export default function Home() {
       setError(
         cause instanceof ApiError
           ? cause.message
-          : "The video could not be uploaded. Check that the local API is running.",
+          : "The video source could not be submitted. Check that the local API is running.",
       );
       setStage("failed");
     }
@@ -342,15 +373,27 @@ export default function Home() {
       ? "Creating your project…"
       : stage === "uploading"
         ? `Uploading video… ${uploadProgress}%`
+        : stage === "submitting"
+          ? "Submitting the URL to the local worker…"
         : stage === "processing"
           ? `Processing video… ${job?.progress ?? 0}%`
           : stage === "succeeded"
             ? "Video processing complete."
             : stage === "failed"
-              ? "This upload did not complete."
+              ? "This video source did not complete."
               : "Ready when you are.";
   const editingClip =
     clips?.find((clip) => clip.id === editingClipId) ?? null;
+  const sourceReady =
+    sourceType === "file"
+      ? file !== null
+      : videoUrl.trim().length > 0 && rightsConfirmed;
+  const isWorking = [
+    "creating",
+    "uploading",
+    "submitting",
+    "processing",
+  ].includes(stage);
 
   return (
     <main className="flex min-h-screen flex-col bg-[#f5f3ee] text-[#1e2926]">
@@ -414,24 +457,76 @@ export default function Home() {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium">Video file</span>
-              <input
-                accept="video/*,.mp4,.mov,.mkv,.webm"
-                className="block w-full rounded-xl border border-[#dfe2db] bg-[#f7f8f5] px-3 py-3 text-sm text-[#52645d] file:mr-3 file:rounded-lg file:border-0 file:bg-[#e9f3ed] file:px-3 file:py-2 file:text-xs file:font-semibold file:text-[#397263]"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                required
-                type="file"
-              />
+              <span className="mb-2 block text-sm font-medium">Video source</span>
+              <select
+                className="w-full rounded-xl border border-[#dfe2db] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#397263] focus:ring-2 focus:ring-[#397263]/15"
+                onChange={(event) => {
+                  const selectedSource = event.target.value;
+                  if (selectedSource === "file" || selectedSource === "url") {
+                    setSourceType(selectedSource);
+                    setRightsConfirmed(false);
+                  }
+                }}
+                value={sourceType}
+              >
+                <option value="file">Upload a video file</option>
+                <option value="url">Import a supported video URL</option>
+              </select>
             </label>
+
+            {sourceType === "file" ? (
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium">Video file</span>
+                <input
+                  accept="video/*,.mp4,.mov,.mkv,.webm"
+                  className="block w-full rounded-xl border border-[#dfe2db] bg-[#f7f8f5] px-3 py-3 text-sm text-[#52645d] file:mr-3 file:rounded-lg file:border-0 file:bg-[#e9f3ed] file:px-3 file:py-2 file:text-xs file:font-semibold file:text-[#397263]"
+                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  required
+                  type="file"
+                />
+              </label>
+            ) : (
+              <>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium">
+                    Supported video URL
+                  </span>
+                  <input
+                    className="w-full rounded-xl border border-[#dfe2db] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#397263] focus:ring-2 focus:ring-[#397263]/15"
+                    onChange={(event) => setVideoUrl(event.target.value)}
+                    placeholder="https://…"
+                    required
+                    type="url"
+                    value={videoUrl}
+                  />
+                </label>
+                <label className="flex items-start gap-3 text-sm text-[#52645d]">
+                  <input
+                    checked={rightsConfirmed}
+                    className="mt-1 accent-[#397263]"
+                    onChange={(event) =>
+                      setRightsConfirmed(event.target.checked)
+                    }
+                    required
+                    type="checkbox"
+                  />
+                  <span>
+                    I own this video or have permission to download and process it.
+                  </span>
+                </label>
+              </>
+            )}
 
             <button
               className="w-full rounded-xl bg-[#194d40] px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-[#123e33] disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!file || !projectName.trim() || stage === "creating" || stage === "uploading" || stage === "processing"}
+              disabled={!sourceReady || !projectName.trim() || isWorking}
               type="submit"
             >
-              {stage === "creating" || stage === "uploading" || stage === "processing"
+              {isWorking
                 ? "Working…"
-                : "Upload video"}
+                : sourceType === "file"
+                  ? "Upload video"
+                  : "Import video URL"}
             </button>
           </form>
 

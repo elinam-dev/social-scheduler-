@@ -114,6 +114,97 @@ def test_project_upload_persists_metadata_and_stores_file(tmp_path) -> None:
         assert stored_video.object_key == object_key
 
 
+def test_project_url_ingest_requires_rights_and_queues_download(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'url-ingest.db'}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    storage = FakeObjectStorage()
+    queue = FakeQueue()
+
+    def override_session():
+        with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_object_storage] = lambda: storage
+    app.dependency_overrides[get_queue] = lambda: queue
+
+    async def ingest():
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://test",
+        ) as client:
+            project_response = await client.post(
+                "/projects", json={"name": "Rights-cleared source"}
+            )
+            project_id = project_response.json()["id"]
+            accepted = await client.post(
+                f"/projects/{project_id}/videos/url",
+                json={
+                    "url": "https://video.example/watch?id=owned",
+                    "rights_confirmed": True,
+                },
+            )
+            missing_rights = await client.post(
+                f"/projects/{project_id}/videos/url",
+                json={
+                    "url": "https://video.example/watch?id=unconfirmed",
+                    "rights_confirmed": False,
+                },
+            )
+            local_host = await client.post(
+                f"/projects/{project_id}/videos/url",
+                json={
+                    "url": "http://127.0.0.1/private.mp4",
+                    "rights_confirmed": True,
+                },
+            )
+            queue.error = RedisError("Redis unavailable")
+            queue_failure = await client.post(
+                f"/projects/{project_id}/videos/url",
+                json={
+                    "url": "https://video.example/watch?id=owned",
+                    "rights_confirmed": True,
+                },
+            )
+        return accepted, missing_rights, local_host, queue_failure
+
+    try:
+        accepted, missing_rights, local_host, queue_failure = anyio.run(ingest)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert accepted.status_code == 201
+    result = accepted.json()
+    assert result["video"]["size_bytes"] == 0
+    assert result["video"]["status"] == "uploaded"
+    assert result["job"]["status"] == "queued"
+    assert missing_rights.status_code == 422
+    assert local_host.status_code == 422
+    assert queue_failure.status_code == 503
+    assert storage.uploads == []
+    assert len(queue.enqueued) == 1
+    function, args, options = queue.enqueued[0]
+    assert function == "clipper_worker.tasks.process_video"
+    assert args == (
+        result["video"]["id"],
+        result["job"]["id"],
+        "https://video.example/watch?id=owned",
+    )
+    assert options["job_id"] == result["job"]["id"]
+    assert isinstance(options["on_failure"], Callback)
+    assert options["on_failure"].name == "clipper_worker.tasks.mark_job_failed"
+
+    with Session(engine) as session:
+        stored_video = session.get(Video, uuid.UUID(result["video"]["id"]))
+        assert stored_video is not None
+        assert stored_video.size_bytes == 0
+        assert session.query(Video).count() == 2
+        failed_video = session.query(Video).filter(Video.status == "failed").one()
+        failed_job = session.query(Job).filter(Job.status == "failed").one()
+        assert failed_video.id == failed_job.video_id
+
+
 def test_queue_failure_is_reported_and_saved_in_job_status(tmp_path) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'queue-failure.db'}")
     Base.metadata.create_all(engine)

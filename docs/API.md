@@ -40,6 +40,11 @@ curl -X POST http://localhost:8000/projects/PROJECT_ID/videos \
 curl http://localhost:8000/jobs/JOB_ID
 ```
 
+To import a supported public video URL, POST JSON to
+`/projects/{project_id}/videos/url` with `url` and `rights_confirmed: true`.
+Only submit videos you own or have permission to process. URL downloads happen
+inside the worker, and only publicly reachable HTTP(S) hosts are accepted.
+
 The upload response includes both the saved video and its queued job. Job states
 are `queued`, `running`, `succeeded`, and `failed`; processing records duration,
 dimensions, frame rate, and the MinIO key for extracted 16 kHz mono WAV audio.

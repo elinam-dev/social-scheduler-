@@ -31,6 +31,8 @@ selected style and use a blurred-background layout at the clip's saved aspect
 ratio. Videos without saved clips show an empty state.
 Ready clips can be downloaded individually as MP4 files or together as a ZIP
 containing the currently rendered clips.
+The source selector also accepts supported public video URLs through yt-dlp;
+URL imports require confirming that you own or have permission to process them.
 
 Check the app with:
 
