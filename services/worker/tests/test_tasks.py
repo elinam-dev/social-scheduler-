@@ -1,7 +1,7 @@
 import sys
 import tempfile
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -403,7 +403,7 @@ def test_process_video_cleans_temporary_files_on_failure(
     original_temporary_directory = tempfile.TemporaryDirectory
 
     @contextmanager
-    def track_temporary_directory(*, prefix: str) -> Iterator[str]:
+    def track_temporary_directory(*, prefix: str) -> Generator[str, None, None]:
         with original_temporary_directory(prefix=prefix) as directory:
             created_directories.append(Path(directory))
             yield directory

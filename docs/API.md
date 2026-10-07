@@ -6,8 +6,8 @@ Start the local stack from the repository root:
 docker compose up --build
 ```
 
-The API is available at `http://localhost:8000`; interactive API documentation is
-at `http://localhost:8000/docs`. Compose applies Alembic migrations before starting
+The API is available at `http://localhost:8001`; interactive API documentation is
+at `http://localhost:8001/docs`. Compose applies Alembic migrations before starting
 the API. The worker consumes queued jobs from Redis and stores source videos and
 extracted audio in MinIO.
 
@@ -20,8 +20,8 @@ worker; Whisper and pyannote automatically select CUDA when detected. Use the
 default Compose command on CPU-only machines.
 
 The Next.js web app lives in `apps/web`. Run `npm ci`, copy
-`apps/web/env.local.example` to `apps/web/.env.local` (change port 8001 to 8000 if
-using the default API port), then run `npm run dev` from `apps/web`. The web server
+`apps/web/env.local.example` to `apps/web/.env.local`, then run `npm run dev` from
+`apps/web`. The web server
 proxies `/backend-api/*` to the configured API address so browser requests remain
 same-origin. Its typed endpoint client is in `apps/web/src/lib/api.ts`.
 
@@ -30,14 +30,14 @@ a video there to follow upload-byte progress and live processing updates.
 Alternatively, create a project and upload a video through the API:
 
 ```sh
-curl -X POST http://localhost:8000/projects \
+curl -X POST http://localhost:8001/projects \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"My project\"}"
 
-curl -X POST http://localhost:8000/projects/PROJECT_ID/videos \
+curl -X POST http://localhost:8001/projects/PROJECT_ID/videos \
   -F "file=@/path/to/video.mp4"
 
-curl http://localhost:8000/jobs/JOB_ID
+curl http://localhost:8001/jobs/JOB_ID
 ```
 
 To import a supported public video URL, POST JSON to
@@ -155,3 +155,10 @@ this provider is explicitly selected. Candidate review expects JSON scores from
 0 to 1 for hook strength, standalone coherence, payoff, and pacing, plus a
 standalone flag and rationale. Invalid JSON or schema values are retried up to
 three attempts; network and provider failures are reported immediately.
+
+API and worker application logs are emitted as newline-delimited JSON. Request
+records include the HTTP method, path, status code, and duration; worker
+`pipeline_operation` records include the operation name, outcome, entity ID, and
+duration in milliseconds. Exception records include the exception type and
+traceback. URL strings in log messages and tracebacks are redacted, and HTTP
+request records omit query strings.

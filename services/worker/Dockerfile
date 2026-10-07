@@ -38,4 +38,4 @@ COPY --chown=app:app services/worker /app
 USER app
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["sh", "-c", "export LD_LIBRARY_PATH=\"/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"; exec rq worker --url \"$REDIS_URL\" default"]
+CMD ["sh", "-c", "export LD_LIBRARY_PATH=\"/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"; exec python -m clipper_worker.worker"]

@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import Settings
 from app.db.models import Clip, Job, Video
 from app.db.session import SessionLocal
+from app.logging_config import log_timing
 from app.schemas.transcript import TranscriptSchema
 from app.storage import ObjectStorage, get_object_storage
 from clipper_worker.ass_subtitles import build_ass_subtitles
@@ -60,47 +61,53 @@ def process_video(
     with tempfile.TemporaryDirectory(prefix="clipper-") as temporary_directory:
         workdir = Path(temporary_directory)
         audio_path = workdir / "audio.wav"
-        if source_url is None:
-            source_path = workdir / f"source{filename_suffix}"
-            storage.download_file(source_key, source_path)
-        else:
-            source_path = _download_video_url(source_url, workdir)
-            filename_suffix = source_path.suffix or filename_suffix
-            try:
-                with source_path.open("rb") as source_file:
-                    storage.upload_file(
-                        source_file,
+        with log_timing(logger, "source_download", video_id=video_id):
+            if source_url is None:
+                source_path = workdir / f"source{filename_suffix}"
+                storage.download_file(source_key, source_path)
+            else:
+                source_path = _download_video_url(source_url, workdir)
+                filename_suffix = source_path.suffix or filename_suffix
+                try:
+                    with source_path.open("rb") as source_file:
+                        storage.upload_file(
+                            source_file,
+                            source_key,
+                            mimetypes.guess_type(source_path.name)[0],
+                        )
+                    with SessionLocal() as session:
+                        video = session.get(Video, video_uuid)
+                        if video is None:
+                            raise LookupError(f"Video not found: {video_id}")
+                        video.original_filename = source_path.name
+                        video.content_type = mimetypes.guess_type(source_path.name)[0]
+                        video.size_bytes = source_path.stat().st_size
+                        session.commit()
+                except (BotoCoreError, ClientError, SQLAlchemyError):
+                    _delete_render_object(
+                        storage,
                         source_key,
-                        mimetypes.guess_type(source_path.name)[0],
+                        "Failed to clean up URL-ingested source",
                     )
-                with SessionLocal() as session:
-                    video = session.get(Video, video_uuid)
-                    if video is None:
-                        raise LookupError(f"Video not found: {video_id}")
-                    video.original_filename = source_path.name
-                    video.content_type = mimetypes.guess_type(source_path.name)[0]
-                    video.size_bytes = source_path.stat().st_size
-                    session.commit()
-            except (BotoCoreError, ClientError, SQLAlchemyError):
-                _delete_render_object(
-                    storage,
-                    source_key,
-                    "Failed to clean up URL-ingested source",
-                )
-                raise
-        metadata = probe_media(source_path)
+                    raise
+        with log_timing(logger, "media_probe", video_id=video_id):
+            metadata = probe_media(source_path)
         if not metadata.has_audio:
             raise AudioExtractionError("Video does not contain an audio stream")
-        extract_audio(source_path, audio_path)
-        with audio_path.open("rb") as audio_file:
-            storage.upload_file(audio_file, audio_key, "audio/wav")
-        transcription = transcribe_audio(audio_path)
+        with log_timing(logger, "audio_extraction", video_id=video_id):
+            extract_audio(source_path, audio_path)
+        with log_timing(logger, "audio_upload", video_id=video_id):
+            with audio_path.open("rb") as audio_file:
+                storage.upload_file(audio_file, audio_key, "audio/wav")
+        with log_timing(logger, "transcription", video_id=video_id):
+            transcription = transcribe_audio(audio_path)
         hf_token = Settings().hf_token
-        diarization = diarize_audio(
-            audio_path,
-            hf_token=hf_token.get_secret_value() if hf_token else None,
-        )
-        transcription = attach_speakers(transcription, diarization)
+        with log_timing(logger, "speaker_diarization", video_id=video_id):
+            diarization = diarize_audio(
+                audio_path,
+                hf_token=hf_token.get_secret_value() if hf_token else None,
+            )
+            transcription = attach_speakers(transcription, diarization)
 
     with SessionLocal() as session:
         video = session.get(Video, video_uuid)
@@ -122,7 +129,11 @@ def process_video(
         job.progress = 100
         job.completed_at = datetime.now(UTC)
         session.commit()
-    logger.info("Finished processing video %s", video_id)
+    logger.info(
+        "Finished processing video %s",
+        video_id,
+        extra={"event": "job_succeeded", "job_id": job_id, "video_id": video_id},
+    )
     return transcription
 
 
@@ -304,22 +315,25 @@ def render_clip_job(clip_id: str, job_id: str) -> str:
         source_path = workdir / f"source{filename_suffix}"
         subtitle_path = workdir / "captions.ass"
         output_path = workdir / "clip.mp4"
-        storage.download_file(source_key, source_path)
+        with log_timing(logger, "clip_source_download", clip_id=str(clip_uuid)):
+            storage.download_file(source_key, source_path)
         subtitle_path.write_text(subtitle_content, encoding="utf-8")
-        render_fallback_clip(
-            source_path,
-            output_path,
-            start_seconds,
-            end_seconds,
-            layout="blurred-background",
-            output_width=output_width,
-            output_height=output_height,
-            subtitle_path=subtitle_path,
-        )
+        with log_timing(logger, "clip_render", clip_id=str(clip_uuid)):
+            render_fallback_clip(
+                source_path,
+                output_path,
+                start_seconds,
+                end_seconds,
+                layout="blurred-background",
+                output_width=output_width,
+                output_height=output_height,
+                subtitle_path=subtitle_path,
+            )
 
         try:
-            with output_path.open("rb") as rendered_file:
-                storage.upload_file(rendered_file, object_key, "video/mp4")
+            with log_timing(logger, "clip_upload", clip_id=str(clip_uuid)):
+                with output_path.open("rb") as rendered_file:
+                    storage.upload_file(rendered_file, object_key, "video/mp4")
         except (BotoCoreError, ClientError):
             _delete_render_object(
                 storage,
@@ -354,7 +368,11 @@ def render_clip_job(clip_id: str, job_id: str) -> str:
             previous_object_key,
             "Failed to clean up the previous clip render",
         )
-    logger.info("Finished rendering clip %s", clip_id)
+    logger.info(
+        "Finished rendering clip %s",
+        clip_id,
+        extra={"event": "job_succeeded", "job_id": job_id, "clip_id": clip_id},
+    )
     return object_key
 
 
@@ -379,6 +397,11 @@ def mark_job_failed(
             "Video processing job %s failed; %s retries remain",
             rq_job.id,
             rq_job.retries_left,
+            extra={
+                "event": "job_retry_pending",
+                "job_id": str(rq_job.id),
+                "retry_count": rq_job.retries_left,
+            },
         )
         return
 
@@ -396,7 +419,12 @@ def mark_job_failed(
         job.error_message = str(exc_value)[:4000]
         job.completed_at = datetime.now(UTC)
         session.commit()
-    logger.error("Video processing job %s failed: %s", job_id, exc_value)
+    logger.error(
+        "Video processing job %s failed: %s",
+        job_id,
+        exc_value,
+        extra={"event": "job_failed", "job_id": str(job_id), "video_id": str(video_id)},
+    )
 
 
 def mark_clip_render_failed(
@@ -411,6 +439,11 @@ def mark_clip_render_failed(
             "Clip render job %s failed; %s retries remain",
             rq_job.id,
             rq_job.retries_left,
+            extra={
+                "event": "job_retry_pending",
+                "job_id": str(rq_job.id),
+                "retry_count": rq_job.retries_left,
+            },
         )
         return
 
@@ -426,4 +459,9 @@ def mark_clip_render_failed(
         job.error_message = str(exc_value)[:4000]
         job.completed_at = datetime.now(UTC)
         session.commit()
-    logger.error("Clip render job %s failed: %s", job_id, exc_value)
+    logger.error(
+        "Clip render job %s failed: %s",
+        job_id,
+        exc_value,
+        extra={"event": "job_failed", "job_id": str(job_id), "clip_id": str(clip_id)},
+    )
