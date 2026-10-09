@@ -2,6 +2,7 @@ import logging
 import mimetypes
 import socket
 import tempfile
+import time
 import uuid
 from datetime import UTC, datetime
 from ipaddress import ip_address
@@ -10,10 +11,17 @@ from urllib.parse import urlsplit
 
 from botocore.exceptions import BotoCoreError, ClientError
 from rq.job import Job as RQJob
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Settings
-from app.db.models import Clip, Job, Video
+from app.db.models import Clip, Job, PlatformToken, ScheduledPost, Video
+from clipper_worker.candidate_review import StructuredOutputError, review_candidate
+from clipper_worker.candidates import generate_candidate_windows
+from clipper_worker.llm import LLMError, create_llm_client
+from clipper_worker.ranking import rank_scored_candidates
+from clipper_worker.scoring import score_candidate
+from clipper_worker.segmentation import segment_sentences
 from app.db.session import SessionLocal
 from app.logging_config import log_timing
 from app.schemas.transcript import TranscriptSchema
@@ -125,16 +133,209 @@ def process_video(
             mode="json"
         )
         video.status = "ready"
+        job.progress = 80
+        session.commit()
+
+    # --- Clip generation ---
+    clips = _generate_clips(video_uuid, transcription, audio_key)
+
+    with SessionLocal() as session:
+        job = session.get(Job, job_uuid)
+        if job is None:
+            raise LookupError(f"Processing job not found: {job_id}")
+        for clip in clips:
+            session.add(clip)
         job.status = "succeeded"
         job.progress = 100
         job.completed_at = datetime.now(UTC)
         session.commit()
+        # Refresh to get DB-assigned IDs
+        for clip in clips:
+            session.refresh(clip)
+        clip_ids = [str(clip.id) for clip in clips]
+        project_id = str(clips[0].video_id) if clips else None
+
+    # Auto-enqueue render jobs for all clips
+    if clip_ids:
+        _enqueue_render_jobs(clip_ids, str(video_uuid))
+
     logger.info(
-        "Finished processing video %s",
+        "Finished processing video %s — %d clips created",
         video_id,
+        len(clips),
         extra={"event": "job_succeeded", "job_id": job_id, "video_id": video_id},
     )
     return transcription
+
+
+def _enqueue_render_jobs(clip_ids: list[str], video_id: str) -> None:
+    import os
+    from redis import Redis
+    from rq import Queue
+    from rq.job import Callback
+    from app.queue import JOB_RETRY_POLICY
+
+    connection = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    queue = Queue("render", connection=connection)
+
+    with SessionLocal() as session:
+        video = session.get(Video, uuid.UUID(video_id))
+        if video is None:
+            return
+        project_id = video.project_id
+
+    for clip_id in clip_ids:
+        render_job_id = uuid.uuid4()
+        with SessionLocal() as session:
+            clip = session.get(Clip, uuid.UUID(clip_id))
+            if clip is None:
+                continue
+            render_job = Job(
+                id=render_job_id,
+                project_id=project_id,
+                video_id=uuid.UUID(video_id),
+                job_type="render_clip",
+                rq_job_id=str(render_job_id),
+            )
+            clip.status = "rendering"
+            session.add(render_job)
+            session.commit()
+        try:
+            queue.enqueue(
+                "clipper_worker.tasks.render_clip_job",
+                clip_id,
+                str(render_job_id),
+                job_id=str(render_job_id),
+                job_timeout=21600,
+                retry=JOB_RETRY_POLICY,
+                on_failure=Callback("clipper_worker.tasks.mark_clip_render_failed"),
+            )
+            logger.info("Auto-enqueued render job for clip %s", clip_id)
+        except Exception:
+            logger.exception("Failed to enqueue render job for clip %s", clip_id)
+
+
+# Minimum silence gap to consider a sentence start a topic boundary
+_TOPIC_BOUNDARY_GAP_SECONDS = 1.5
+
+
+def _generate_clips(
+    video_uuid: uuid.UUID,
+    transcription: TranscriptionResult,
+    audio_key: str,
+) -> list[Clip]:
+    """Candidate selection, scoring, and ranking; return Clip rows."""
+    sentences = segment_sentences(transcription)
+    if not sentences:
+        logger.warning("No sentences found for video %s — skipping clip generation", video_uuid)
+        return []
+
+    # Find sentence indices that follow a meaningful pause (topic boundaries)
+    boundary_indices: set[int] = {0}  # always allow starting at the very beginning
+    for i in range(1, len(sentences)):
+        gap = sentences[i].start_seconds - sentences[i - 1].end_seconds
+        if gap >= _TOPIC_BOUNDARY_GAP_SECONDS:
+            boundary_indices.add(i)
+
+    # Only generate windows that start at a topic boundary
+    boundary_sentences = tuple(
+        s for i, s in enumerate(sentences) if i in boundary_indices
+    )
+    # Build candidates using boundary starts but full sentence list for end alignment
+    from clipper_worker.candidates import CandidateWindow, DEFAULT_MIN_CANDIDATE_DURATION_SECONDS, DEFAULT_MAX_CANDIDATE_DURATION_SECONDS
+    candidates: list[CandidateWindow] = []
+    sentence_list = list(sentences)
+    for first_index, first_sentence in enumerate(sentence_list):
+        if first_index not in boundary_indices:
+            continue
+        text_parts: list[str] = []
+        for last_index in range(first_index, len(sentence_list)):
+            sentence = sentence_list[last_index]
+            duration = sentence.end_seconds - first_sentence.start_seconds
+            if duration > DEFAULT_MAX_CANDIDATE_DURATION_SECONDS:
+                break
+            text_parts.append(sentence.text.strip())
+            if duration >= DEFAULT_MIN_CANDIDATE_DURATION_SECONDS:
+                candidates.append(
+                    CandidateWindow(
+                        start_seconds=first_sentence.start_seconds,
+                        end_seconds=sentence.end_seconds,
+                        text=" ".join(p for p in text_parts if p),
+                        first_sentence_index=first_index,
+                        end_sentence_index=last_index + 1,
+                    )
+                )
+
+    if not candidates:
+        logger.warning("No candidate windows for video %s — skipping clip generation", video_uuid)
+        return []
+
+    logger.info("Generated %d candidates from %d boundary sentences for video %s",
+                len(candidates), len(boundary_indices), video_uuid)
+
+    storage = get_object_storage()
+    with tempfile.TemporaryDirectory(prefix="clipper-clips-") as tmpdir:
+        audio_path = Path(tmpdir) / "audio.wav"
+        storage.download_file(audio_key, audio_path)
+        return _review_score_rank(video_uuid, tuple(candidates), sentences, audio_path)
+
+
+_DEFAULT_EVALUATION = None  # resolved lazily below
+_MAX_CANDIDATES_FOR_LLM = 40
+
+
+def _default_evaluation() -> "CandidateEvaluation":
+    from clipper_worker.candidate_review import CandidateEvaluation
+    return CandidateEvaluation(
+        hook_strength=0.5,
+        standalone_coherence=0.5,
+        payoff=0.5,
+        pacing=0.5,
+        standalone=True,
+        rationale="LLM review unavailable; using default scores.",
+    )
+
+
+def _review_score_rank(
+    video_uuid: uuid.UUID,
+    candidates: tuple,
+    sentences: tuple,
+    audio_path: Path,
+) -> list[Clip]:
+    from clipper_worker.scoring import AudioScoreError
+
+    reviewed: list[tuple] = []
+    default_eval = _default_evaluation()
+    for candidate in candidates:
+        try:
+            score = score_candidate(candidate, default_eval, sentences, audio_path)
+        except (AudioScoreError, ValueError) as exc:
+            logger.warning("Scoring failed for candidate, skipping: %s", exc)
+            continue
+        reviewed.append((candidate, default_eval, score))
+
+    if not reviewed:
+        logger.warning("No candidates survived review/scoring for video %s", video_uuid)
+        return []
+
+    ranked = rank_scored_candidates(
+        ((c, e, s) for c, e, s in reviewed),
+    )
+
+    clips: list[Clip] = []
+    for rank, item in enumerate(ranked, start=1):
+        clips.append(
+            Clip(
+                video_id=video_uuid,
+                start_seconds=item.candidate.start_seconds,
+                end_seconds=item.candidate.end_seconds,
+                rank=rank,
+                score=item.score,
+                title=None,
+                status="pending",
+            )
+        )
+    return clips
 
 
 def _validate_public_source_url(url: str) -> None:
@@ -314,11 +515,40 @@ def render_clip_job(clip_id: str, job_id: str) -> str:
     object_key = f"{project_uuid}/{video_uuid}/clips/{clip_uuid}/{uuid.uuid4().hex}.mp4"
     with tempfile.TemporaryDirectory(prefix="clipper-render-") as temporary_directory:
         workdir = Path(temporary_directory)
-        source_path = workdir / f"source{filename_suffix}"
         subtitle_path = workdir / "captions.ass"
         output_path = workdir / "clip.mp4"
-        with log_timing(logger, "clip_source_download", clip_id=str(clip_uuid)):
-            storage.download_file(source_key, source_path)
+
+        # --- source video cache ---
+        _CACHE_DIR = Path("/tmp/clipper-source-cache")
+        source_path = workdir / f"source{filename_suffix}"  # fallback default
+        try:
+            _CACHE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+            safe_key = source_key.replace("/", "_").replace("\\", "_")
+            # strip leading underscores that would hide the file
+            safe_key = safe_key.lstrip("_") or "source"
+            cache_filename = f"{safe_key}{filename_suffix}"
+            cache_path = _CACHE_DIR / cache_filename
+            if cache_path.exists() and cache_path.stat().st_size > 0:
+                logger.info("Cache hit for source %s", source_key)
+                source_path = cache_path
+            else:
+                logger.info("Downloading source %s to cache", source_key)
+                tmp_cache_path = _CACHE_DIR / f"{cache_filename}.tmp"
+                with log_timing(logger, "clip_source_download", clip_id=str(clip_uuid)):
+                    storage.download_file(source_key, tmp_cache_path)
+                tmp_cache_path.rename(cache_path)
+                source_path = cache_path
+        except Exception:
+            logger.warning(
+                "Source cache unavailable for %s, falling back to direct download",
+                source_key,
+                exc_info=True,
+            )
+            source_path = workdir / f"source{filename_suffix}"
+            with log_timing(logger, "clip_source_download", clip_id=str(clip_uuid)):
+                storage.download_file(source_key, source_path)
+        # --- end source video cache ---
+
         subtitle_path.write_text(subtitle_content, encoding="utf-8")
         with log_timing(logger, "clip_render", clip_id=str(clip_uuid)):
             render_fallback_clip(
@@ -467,3 +697,178 @@ def mark_clip_render_failed(
         exc_value,
         extra={"event": "job_failed", "job_id": str(job_id), "clip_id": str(clip_id)},
     )
+
+
+def post_clip_to_platform(post_id: str) -> str:
+    """Download a rendered clip and publish it to the target platform."""
+    post_uuid = uuid.UUID(post_id)
+
+    with SessionLocal() as session:
+        post = session.get(ScheduledPost, post_uuid)
+        if post is None:
+            raise LookupError(f"ScheduledPost not found: {post_id}")
+        if post.status == "cancelled":
+            return "cancelled"
+
+        clip = session.get(Clip, post.clip_id)
+        if clip is None or clip.object_key is None:
+            raise LookupError(f"Clip or rendered file not found for post {post_id}")
+
+        token_row = session.scalar(
+            select(PlatformToken).where(PlatformToken.platform == post.platform)
+        )
+        if token_row is None:
+            raise RuntimeError(
+                f"No OAuth token for platform '{post.platform}'. "
+                "Connect the platform in the UI first."
+            )
+
+        object_key = clip.object_key
+        platform = post.platform
+        title = clip.title or f"Clip {clip.id}"
+        encrypted_token = token_row.encrypted_token
+        post.status = "publishing"
+        session.commit()
+
+    from app.token_crypto import decrypt_token
+    from clipper_worker.publishing import PublishError, publish_clip
+
+    settings = Settings()
+    token_data = decrypt_token(encrypted_token, settings)
+
+    storage = get_object_storage()
+    with tempfile.TemporaryDirectory(prefix="clipper-publish-") as tmpdir:
+        clip_path = Path(tmpdir) / "clip.mp4"
+        with log_timing(logger, "publish_download", post_id=post_id):
+            storage.download_file(object_key, clip_path)
+
+        # For Instagram we need a public URL — generate a pre-signed MinIO URL
+        description = ""
+        if platform == "instagram":
+            import json as _json
+            presigned = storage.client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": storage.bucket, "Key": object_key},
+                ExpiresIn=3600,
+            )
+            description = _json.dumps({"video_url": presigned, "caption": title})
+
+        with log_timing(logger, "platform_publish", post_id=post_id, platform=platform):
+            platform_post_id = publish_clip(
+                platform, token_data, clip_path, title, description
+            )
+
+    # Persist refreshed token (YouTube may have refreshed it)
+    from app.token_crypto import encrypt_token
+
+    with SessionLocal() as session:
+        post = session.get(ScheduledPost, post_uuid)
+        token_row = session.scalar(
+            select(PlatformToken).where(PlatformToken.platform == platform)
+        )
+        if post is not None:
+            post.status = "published"
+            post.platform_post_id = platform_post_id
+        if token_row is not None:
+            token_row.encrypted_token = encrypt_token(token_data, settings)
+        session.commit()
+
+    logger.info(
+        "Published clip %s to %s: %s",
+        post_id,
+        platform,
+        platform_post_id,
+        extra={
+            "event": "clip_published",
+            "post_id": post_id,
+            "platform": platform,
+            "platform_post_id": platform_post_id,
+        },
+    )
+    return platform_post_id
+
+
+def mark_post_failed(
+    rq_job: RQJob,
+    _connection: object,
+    _exc_type: type[BaseException],
+    exc_value: BaseException,
+    _traceback: object,
+) -> None:
+    if rq_job.retries_left is not None and rq_job.retries_left > 0:
+        return
+
+    post_id = uuid.UUID(rq_job.args[0])
+    with SessionLocal() as session:
+        post = session.get(ScheduledPost, post_id)
+        if post is not None:
+            post.status = "failed"
+            post.error_message = str(exc_value)[:4000]
+            session.commit()
+    logger.error(
+        "Scheduled post %s failed: %s",
+        post_id,
+        exc_value,
+        extra={"event": "post_failed", "post_id": str(post_id)},
+    )
+
+
+def run_publish_scheduler(queue_name: str = "default") -> None:
+    """
+    Long-running loop that polls for due ScheduledPosts and enqueues them.
+    Run this in a separate process or thread alongside the RQ worker.
+    """
+    import os
+
+    from redis import Redis
+    from rq import Queue
+    from rq.job import Callback
+
+    connection = Redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379/0"))
+    queue = Queue(queue_name, connection=connection)
+
+    logger.info("Publish scheduler started")
+    while True:
+        try:
+            _enqueue_due_posts(queue)
+        except Exception:
+            logger.exception("Publish scheduler error")
+        time.sleep(30)
+
+
+def _enqueue_due_posts(queue: object) -> None:
+    from rq import Queue
+    from rq.job import Callback
+    from rq.job import Retry
+
+    assert isinstance(queue, Queue)
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        due = session.scalars(
+            select(ScheduledPost).where(
+                ScheduledPost.status == "scheduled",
+                ScheduledPost.scheduled_at <= now,
+            )
+        ).all()
+        for post in due:
+            post.status = "publishing"
+            session.commit()
+            try:
+                queue.enqueue(
+                    "clipper_worker.tasks.post_clip_to_platform",
+                    str(post.id),
+                    job_timeout=1800,
+                    retry=Retry(max=3, interval=[60, 120, 300]),
+                    on_failure=Callback(
+                        "clipper_worker.tasks.mark_post_failed"
+                    ),
+                )
+                logger.info(
+                    "Enqueued publish job for post %s (%s)",
+                    post.id,
+                    post.platform,
+                )
+            except Exception:
+                post.status = "scheduled"
+                session.commit()
+                logger.exception("Failed to enqueue post %s", post.id)
