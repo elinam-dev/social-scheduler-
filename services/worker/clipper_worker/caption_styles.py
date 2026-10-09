@@ -37,7 +37,8 @@ DEFAULT_CAPTION_STYLE = CaptionStyle(
     alignment=2,
     margin_left=60,
     margin_right=60,
-    margin_vertical=120,
+    margin_vertical=280,
+    highlight_words=True,
 )
 
 CAPTION_STYLE_PRESETS: dict[str, CaptionStyle] = {
@@ -62,6 +63,6 @@ CAPTION_STYLE_PRESETS: dict[str, CaptionStyle] = {
         alignment=2,
         margin_left=60,
         margin_right=60,
-        margin_vertical=120,
+        margin_vertical=280,
     ),
 }
