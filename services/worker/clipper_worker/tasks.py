@@ -1,5 +1,6 @@
 import logging
 import mimetypes
+import os
 import socket
 import tempfile
 import time
@@ -169,7 +170,6 @@ def process_video(
 
 
 def _enqueue_render_jobs(clip_ids: list[str], video_id: str) -> None:
-    import os
     from redis import Redis
     from rq import Queue
     from rq.job import Callback
@@ -551,6 +551,7 @@ def render_clip_job(clip_id: str, job_id: str) -> str:
 
         subtitle_path.write_text(subtitle_content, encoding="utf-8")
         with log_timing(logger, "clip_render", clip_id=str(clip_uuid)):
+            use_gpu = os.environ.get("CLIPPER_GPU", "0") == "1"
             render_fallback_clip(
                 source_path,
                 output_path,
@@ -560,6 +561,7 @@ def render_clip_job(clip_id: str, job_id: str) -> str:
                 output_width=output_width,
                 output_height=output_height,
                 subtitle_path=subtitle_path,
+                use_gpu=use_gpu,
             )
 
         try:

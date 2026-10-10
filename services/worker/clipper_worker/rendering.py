@@ -20,6 +20,7 @@ def render_clip(
     preset: str = "medium",
     crf: int = 20,
     subtitle_path: str | Path | None = None,
+    use_gpu: bool = False,
 ) -> Path:
     source = Path(input_path)
     destination = Path(output_path)
@@ -86,21 +87,48 @@ def render_clip(
                 "0:v:0",
             ]
         )
-    command.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            preset,
-            "-crf",
-            str(crf),
-            "-c:a",
-            "aac",
-            "-movflags",
-            "+faststart",
-            str(destination),
-        ]
-    )
+    from clipper_worker.fallback_rendering import _detect_gpu_encoder
+    if use_gpu and _detect_gpu_encoder():
+        # hwaccel flags go before -i; command starts: [ffmpeg, -v, error, -nostdin, -y, -i, ...]
+        # Insert before index 1 (right after the ffmpeg binary)
+        command[1:1] = ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
+        command.extend(
+            [
+                "-c:v",
+                "h264_nvenc",
+                "-preset",
+                "p4",
+                "-cq",
+                str(crf),
+                "-rc",
+                "vbr",
+                "-threads",
+                "0",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+                str(destination),
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                preset,
+                "-crf",
+                str(crf),
+                "-threads",
+                "0",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+                str(destination),
+            ]
+        )
 
     try:
         subprocess.run(

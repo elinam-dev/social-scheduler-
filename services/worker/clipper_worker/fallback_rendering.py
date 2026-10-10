@@ -7,7 +7,27 @@ from clipper_worker.media import probe_media
 from clipper_worker.rendering import ClipRenderError
 from clipper_worker.subtitle_filter import build_ass_filter
 
+_GPU_ENCODER_AVAILABLE: bool | None = None
+
 FallbackLayout = Literal["blurred-background", "split-screen"]
+
+
+def _detect_gpu_encoder() -> bool:
+    """Return True if h264_nvenc is available. Result is cached module-level."""
+    global _GPU_ENCODER_AVAILABLE
+    if _GPU_ENCODER_AVAILABLE is not None:
+        return _GPU_ENCODER_AVAILABLE
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        _GPU_ENCODER_AVAILABLE = "h264_nvenc" in result.stdout
+    except Exception:
+        _GPU_ENCODER_AVAILABLE = False
+    return _GPU_ENCODER_AVAILABLE
 
 
 def render_fallback_clip(
@@ -20,9 +40,10 @@ def render_fallback_clip(
     output_width: int = 1080,
     output_height: int = 1920,
     ffmpeg_binary: str = "ffmpeg",
-    preset: str = "medium",
-    crf: int = 20,
+    preset: str = "ultrafast",
+    crf: int = 26,
     subtitle_path: str | Path | None = None,
+    use_gpu: bool = False,
 ) -> Path:
     source = Path(input_path)
     destination = Path(output_path)
@@ -54,53 +75,67 @@ def render_fallback_clip(
     metadata = probe_media(source)
     if end_seconds > metadata.duration_seconds:
         raise ValueError("Clip end time exceeds the source video duration")
+    duration = end_seconds - start_seconds
     video_filter = _video_filter(layout, output_width, output_height)
-    video_chain = (
-        f"[0:v:0]trim=start={start_seconds:.9f}:end={end_seconds:.9f},"
-        f"setpts=PTS-STARTPTS,{video_filter}{subtitle_filter}[v]"
-    )
+    video_chain = f"[0:v:0]{video_filter}{subtitle_filter}[v]"
     destination.parent.mkdir(parents=True, exist_ok=True)
     command = [
         ffmpeg_binary,
-        "-v",
-        "error",
+        "-v", "error",
         "-nostdin",
         "-y",
-        "-i",
-        str(source),
+        "-ss", f"{start_seconds:.9f}",
+        "-i", str(source),
+        "-t", f"{duration:.9f}",
     ]
     if metadata.has_audio:
-        audio_chain = (
-            f"[0:a:0]atrim=start={start_seconds:.9f}:end={end_seconds:.9f},"
-            "asetpts=PTS-STARTPTS[a]"
-        )
+        command.extend([
+            "-filter_complex", f"{video_chain};[0:a:0]asetpts=PTS-STARTPTS[a]",
+            "-map", "[v]",
+            "-map", "[a]",
+        ])
+    else:
+        command.extend(["-filter_complex", video_chain, "-map", "[v]"])
+    if use_gpu and _detect_gpu_encoder():
+        # Insert hwaccel flags at the very start of the command (before -v)
+        command[1:1] = ["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"]
         command.extend(
             [
-                "-filter_complex",
-                f"{video_chain};{audio_chain}",
-                "-map",
-                "[v]",
-                "-map",
-                "[a]",
+                "-c:v",
+                "h264_nvenc",
+                "-preset",
+                "p4",
+                "-cq",
+                str(crf),
+                "-rc",
+                "vbr",
+                "-threads",
+                "0",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+                str(destination),
             ]
         )
     else:
-        command.extend(["-filter_complex", video_chain, "-map", "[v]"])
-    command.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            preset,
-            "-crf",
-            str(crf),
-            "-c:a",
-            "aac",
-            "-movflags",
-            "+faststart",
-            str(destination),
-        ]
-    )
+        command.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                preset,
+                "-crf",
+                str(crf),
+                "-threads",
+                "0",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+                str(destination),
+            ]
+        )
 
     try:
         subprocess.run(
@@ -134,7 +169,7 @@ def _video_filter(layout: FallbackLayout, output_width: int, output_height: int)
             f"[background_source]scale={output_width}:{output_height}:"
             "force_original_aspect_ratio=increase,"
             f"crop={output_width}:{output_height},"
-            "boxblur=luma_radius=20:luma_power=1[background];"
+            f"scale=iw/20:ih/20,scale={output_width}:{output_height}:flags=neighbor[background];"
             f"[foreground_source]scale={output_width}:{output_height}:"
             "force_original_aspect_ratio=decrease[foreground];"
             "[background][foreground]overlay=(W-w)/2:(H-h)/2,setsar=1"

@@ -15,7 +15,7 @@ from clipper_worker.rendering import ClipRenderError
     [
         (
             "blurred-background",
-            ("boxblur=luma_radius=20", "overlay=(W-w)/2:(H-h)/2"),
+            ("scale=iw/20:ih/20", "overlay=(W-w)/2:(H-h)/2"),
         ),
         ("split-screen", ("crop=iw/2:ih:0:0", "vstack=inputs=2")),
     ],
@@ -56,7 +56,7 @@ def test_render_fallback_clip_builds_layout_and_audio_filters(
     assert isinstance(command, list)
     filters = command[command.index("-filter_complex") + 1]
     assert all(fragment in filters for fragment in filter_fragments)
-    assert "atrim=start=0.500000000:end=2.500000000" in filters
+    assert "asetpts=PTS-STARTPTS" in filters
     assert "-map" in command
 
 
