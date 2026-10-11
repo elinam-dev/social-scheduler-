@@ -190,7 +190,7 @@ def _prepare_chunks(
 
 
 def _offset_segment(segment: Any, offset_seconds: float) -> TranscriptionSegment:
-    words = tuple(
+    raw_words = tuple(
         WordTimestamp(
             start_seconds=float(word.start) + offset_seconds,
             end_seconds=float(word.end) + offset_seconds,
@@ -201,9 +201,25 @@ def _offset_segment(segment: Any, offset_seconds: float) -> TranscriptionSegment
         )
         for word in (segment.words or ())
     )
+    words = tuple(_fix_word_timestamps(raw_words))
     return TranscriptionSegment(
         start_seconds=float(segment.start) + offset_seconds,
         end_seconds=float(segment.end) + offset_seconds,
         text=segment.text.strip(),
         words=words,
     )
+
+
+def _fix_word_timestamps(
+    words: tuple[WordTimestamp, ...],
+) -> list[WordTimestamp]:
+    """Clamp word timestamps so end > start, which faster-whisper tiny can violate."""
+    from dataclasses import replace
+
+    fixed = []
+    for word in words:
+        if word.end_seconds <= word.start_seconds:
+            fixed.append(replace(word, end_seconds=word.start_seconds + 0.01))
+        else:
+            fixed.append(word)
+    return fixed

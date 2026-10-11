@@ -24,6 +24,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["projects"])
 
 
+@router.get("/projects", response_model=list[ProjectRead])
+def list_projects(
+    session: Session = Depends(get_session),
+) -> list[Project]:
+    return list(session.scalars(select(Project).order_by(Project.created_at.desc())).all())
+
+
+@router.get("/projects/{project_id}/videos", response_model=list[VideoRead])
+def list_project_videos(
+    project_id: uuid.UUID,
+    session: Session = Depends(get_session),
+) -> list[Video]:
+    if session.get(Project, project_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return list(session.scalars(select(Video).where(Video.project_id == project_id).order_by(Video.created_at.desc())).all())
+
+
 @router.post(
     "/projects",
     response_model=ProjectRead,

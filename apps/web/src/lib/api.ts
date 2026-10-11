@@ -59,6 +59,31 @@ export interface ClipCaptionStyleUpdate {
   caption_style: CaptionStyleName;
 }
 
+export type Platform = "youtube" | "tiktok" | "instagram";
+
+export interface ScheduledPostCreate {
+  platforms: Platform[];
+  scheduled_at: string; // ISO 8601
+}
+
+export interface ScheduledPostRead {
+  id: string;
+  clip_id: string;
+  platform: Platform;
+  scheduled_at: string;
+  status: string;
+  platform_post_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlatformConnectionStatus {
+  platform: string;
+  connected: boolean;
+  auth_url: string | null;
+}
+
 export interface VideoUploadResponse {
   video: VideoRead;
   job: JobRead;
@@ -105,6 +130,12 @@ const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "/backend-api").repl
   /\/$/,
   "",
 );
+
+// For file uploads we bypass the Next.js proxy and go directly to the API
+// to avoid the proxy body-size limit. Falls back to apiBaseUrl if not set.
+const uploadBaseUrl = (
+  process.env.NEXT_PUBLIC_UPLOAD_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"
+).replace(/\/$/, "");
 
 function parsePayload(
   responseText: string,
@@ -179,7 +210,7 @@ export const api = {
 
       xhr.open(
         "POST",
-        `${apiBaseUrl}/projects/${encodeURIComponent(projectId)}/videos`,
+        `${uploadBaseUrl}/projects/${encodeURIComponent(projectId)}/videos`,
       );
       xhr.upload.addEventListener("progress", (event) => {
         if (event.lengthComputable) {
@@ -289,5 +320,49 @@ export const api = {
     return request<Transcript>(
       `/videos/${encodeURIComponent(videoId)}/transcript`,
     );
+  },
+
+  getProjects(): Promise<ProjectRead[]> {
+    return request<ProjectRead[]>("/projects");
+  },
+
+  getProjectVideos(projectId: string): Promise<VideoRead[]> {
+    return request<VideoRead[]>(`/projects/${encodeURIComponent(projectId)}/videos`);
+  },
+
+  getPlatformStatus(): Promise<PlatformConnectionStatus[]> {
+    return request<PlatformConnectionStatus[]>("/auth/status");
+  },
+
+  disconnectPlatform(platform: string): Promise<void> {
+    return request<void>(`/auth/${encodeURIComponent(platform)}/disconnect`, {
+      method: "DELETE",
+    });
+  },
+
+  scheduleClip(
+    clipId: string,
+    body: ScheduledPostCreate,
+  ): Promise<ScheduledPostRead[]> {
+    return request<ScheduledPostRead[]>(
+      `/clips/${encodeURIComponent(clipId)}/schedule`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  getScheduledPosts(clipId: string): Promise<ScheduledPostRead[]> {
+    return request<ScheduledPostRead[]>(
+      `/clips/${encodeURIComponent(clipId)}/scheduled-posts`,
+    );
+  },
+
+  cancelScheduledPost(postId: string): Promise<void> {
+    return request<void>(`/scheduled-posts/${encodeURIComponent(postId)}`, {
+      method: "DELETE",
+    });
   },
 };

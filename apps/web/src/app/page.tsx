@@ -9,6 +9,9 @@ import {
   type CaptionStyleName,
   type ClipRead,
   type JobRead,
+  type Platform,
+  type PlatformConnectionStatus,
+  type ScheduledPostRead,
   type Transcript,
   type VideoUploadResponse,
 } from "@/lib/api";
@@ -68,6 +71,7 @@ export default function Home() {
   const [renderingClipId, setRenderingClipId] = useState<string | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [clips, setClips] = useState<ClipRead[] | null>(null);
+  const [recentProjects, setRecentProjects] = useState<{ id: string; name: string; videoId: string }[] | null>(null);
   const [editingClipId, setEditingClipId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
@@ -86,6 +90,87 @@ export default function Home() {
   const eventSource = useRef<EventSource | null>(null);
   const transcriptRequestId = useRef(0);
 
+  // --- Platform publishing state ---
+  const [platformStatus, setPlatformStatus] = useState<PlatformConnectionStatus[] | null>(null);
+  const [schedulingClipId, setSchedulingClipId] = useState<string | null>(null);
+  const [scheduleSelectedPlatforms, setScheduleSelectedPlatforms] = useState<Platform[]>([]);
+  const [scheduleDateTime, setScheduleDateTime] = useState("");
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduledPosts, setScheduledPosts] = useState<Record<string, ScheduledPostRead[]>>({});
+
+  useEffect(() => {
+    void api.getPlatformStatus().then(setPlatformStatus).catch(() => {});
+    void api.getProjects().then(async (projects) => {
+      const recent: { id: string; name: string; videoId: string }[] = [];
+      for (const p of projects.slice(0, 5)) {
+        try {
+          const videos = await api.getProjectVideos(p.id);
+          const ready = videos.find((v) => v.status === "ready");
+          if (ready) recent.push({ id: p.id, name: p.name, videoId: ready.id });
+        } catch { /* skip */ }
+      }
+      setRecentProjects(recent);
+    }).catch(() => {});
+  }, []);
+
+  async function resumeProject(vid: string) {
+    setVideoId(vid);
+    setStage("succeeded");
+    setClips(null);
+    void pollClipsUntilReady(vid);
+  }
+
+  async function loadScheduledPosts(clipId: string) {
+    try {
+      const posts = await api.getScheduledPosts(clipId);
+      setScheduledPosts((prev) => ({ ...prev, [clipId]: posts }));
+    } catch {
+      // non-critical
+    }
+  }
+
+  async function handleScheduleSubmit(event: FormEvent<HTMLFormElement>, clipId: string) {
+    event.preventDefault();
+    if (scheduleSelectedPlatforms.length === 0) {
+      setScheduleError("Select at least one platform.");
+      return;
+    }
+    if (!scheduleDateTime) {
+      setScheduleError("Pick a date and time.");
+      return;
+    }
+    setScheduleSaving(true);
+    setScheduleError(null);
+    try {
+      await api.scheduleClip(clipId, {
+        platforms: scheduleSelectedPlatforms,
+        scheduled_at: new Date(scheduleDateTime).toISOString(),
+      });
+      setScheduleNotice("Scheduled! The worker will post at the selected time.");
+      setSchedulingClipId(null);
+      void loadScheduledPosts(clipId);
+    } catch (cause) {
+      setScheduleError(
+        cause instanceof ApiError ? cause.message : "Could not schedule the post.",
+      );
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  async function cancelPost(postId: string, clipId: string) {
+    try {
+      await api.cancelScheduledPost(postId);
+      void loadScheduledPosts(clipId);
+    } catch (cause) {
+      setScheduleError(
+        cause instanceof ApiError ? cause.message : "Could not cancel the post.",
+      );
+    }
+  }
+
   useEffect(() => () => eventSource.current?.close(), []);
 
   async function loadClips(id: string) {
@@ -98,6 +183,19 @@ export default function Home() {
           ? cause.message
           : "Could not load clips from the local API.",
       );
+    }
+  }
+
+  async function pollClipsUntilReady(id: string) {
+    for (let i = 0; i < 120; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const updated = await api.getClips(id);
+        setClips(updated);
+        if (updated.every((c) => c.status !== "rendering")) break;
+      } catch {
+        break;
+      }
     }
   }
 
@@ -339,7 +437,7 @@ export default function Home() {
             eventSource.current = null;
             setStage(update.status === "succeeded" ? "succeeded" : "failed");
             if (update.status === "succeeded" && update.video_id) {
-              void loadClips(update.video_id);
+              void pollClipsUntilReady(update.video_id);
             }
           }
         } catch {
@@ -565,6 +663,25 @@ export default function Home() {
         </div>
       </section>
 
+      {recentProjects && recentProjects.length > 0 && stage === "idle" && (
+        <section className="mx-auto w-full max-w-6xl px-6 pb-6">
+          <p className="mb-3 text-xs font-semibold tracking-[0.18em] text-[#397263]">RECENT PROJECTS</p>
+          <div className="flex flex-wrap gap-3">
+            {recentProjects.map((p) => (
+              <button
+                key={p.id}
+                className="rounded-xl border border-[#dfe2db] bg-white px-4 py-3 text-left text-sm shadow-sm hover:border-[#397263] hover:bg-[#f5f8f4] transition"
+                onClick={() => void resumeProject(p.videoId)}
+                type="button"
+              >
+                <span className="font-semibold text-[#1e2926]">{p.name}</span>
+                <span className="ml-2 text-xs text-[#78847d]">View clips →</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {videoId && (
         <section className="mx-auto w-full max-w-6xl px-6 pb-14">
           <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
@@ -588,6 +705,44 @@ export default function Home() {
               </p>
             </div>
           </div>
+
+          {platformStatus && (
+            <div className="mb-6 rounded-2xl border border-[#dfe2db] bg-white p-4">
+              <p className="mb-3 text-xs font-semibold tracking-[0.16em] text-[#397263]">
+                PLATFORM CONNECTIONS
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {platformStatus.map((p) => (
+                  <div key={p.platform} className="flex items-center gap-2">
+                    <span className={`size-2 rounded-full ${p.connected ? "bg-[#4f9b72]" : "bg-[#d4d8d0]"}`} />
+                    <span className="text-sm capitalize text-[#52645d]">{p.platform}</span>
+                    {p.connected ? (
+                      <button
+                        className="rounded-md border border-[#d4d8d0] px-2 py-1 text-xs text-[#64726b] hover:bg-[#f5f8f4]"
+                        onClick={() => {
+                          void api.disconnectPlatform(p.platform).then(() =>
+                            api.getPlatformStatus().then(setPlatformStatus)
+                          );
+                        }}
+                        type="button"
+                      >
+                        Disconnect
+                      </button>
+                    ) : p.auth_url ? (
+                      <a
+                        className="rounded-md bg-[#194d40] px-2 py-1 text-xs font-semibold text-white hover:bg-[#123e33]"
+                        href={p.auth_url}
+                      >
+                        Connect
+                      </a>
+                    ) : (
+                      <span className="text-xs text-[#78847d]">Not configured</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {stage === "processing" && (
             <p className="rounded-2xl border border-[#dfe2db] bg-white p-6 text-sm text-[#64726b]">
@@ -641,7 +796,13 @@ export default function Home() {
                     />
                   ) : (
                     <div className="grid aspect-[9/16] w-full place-items-center bg-[#e9ede8] px-6 text-center text-sm text-[#64726b]">
-                      Preview unavailable
+                      {clip.status === "rendering" || renderingClipId === clip.id
+                        ? (
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="size-8 animate-spin rounded-full border-4 border-[#d4d8d0] border-t-[#397263]" />
+                            <span>Rendering…</span>
+                          </div>
+                        ) : "Preview unavailable"}
                     </div>
                   )}
                   <div className="p-4">
@@ -726,6 +887,146 @@ export default function Home() {
                         }
                       </span>
                     </label>
+
+                    {/* Schedule panel */}
+                    {clip.status === "ready" && (
+                      <div className="mt-4 border-t border-[#edf0eb] pt-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-[#52645d]">
+                            Schedule post
+                          </span>
+                          <button
+                            className="text-xs text-[#397263] underline"
+                            onClick={() => {
+                              if (schedulingClipId === clip.id) {
+                                setSchedulingClipId(null);
+                              } else {
+                                setSchedulingClipId(clip.id);
+                                setScheduleSelectedPlatforms([]);
+                                setScheduleDateTime("");
+                                setScheduleError(null);
+                                void loadScheduledPosts(clip.id);
+                              }
+                            }}
+                            type="button"
+                          >
+                            {schedulingClipId === clip.id ? "Close" : "Open"}
+                          </button>
+                        </div>
+
+                        {schedulingClipId === clip.id && (
+                          <form
+                            className="mt-3 space-y-3"
+                            onSubmit={(e) => void handleScheduleSubmit(e, clip.id)}
+                          >
+                            <fieldset>
+                              <legend className="mb-2 text-xs text-[#64726b]">
+                                Platforms
+                              </legend>
+                              <div className="flex flex-wrap gap-3">
+                                {(["youtube", "tiktok", "instagram"] as Platform[]).map(
+                                  (platform) => {
+                                    const connected = platformStatus?.find(
+                                      (s) => s.platform === platform,
+                                    )?.connected;
+                                    return (
+                                      <label
+                                        key={platform}
+                                        className={`flex items-center gap-1.5 text-xs ${
+                                          connected
+                                            ? "text-[#35443e]"
+                                            : "text-[#aab4ae] line-through"
+                                        }`}
+                                      >
+                                        <input
+                                          checked={scheduleSelectedPlatforms.includes(
+                                            platform,
+                                          )}
+                                          disabled={!connected}
+                                          onChange={(e) => {
+                                            setScheduleSelectedPlatforms((prev) =>
+                                              e.target.checked
+                                                ? [...prev, platform]
+                                                : prev.filter((p) => p !== platform),
+                                            );
+                                          }}
+                                          type="checkbox"
+                                        />
+                                        <span className="capitalize">{platform}</span>
+                                      </label>
+                                    );
+                                  },
+                                )}
+                              </div>
+                            </fieldset>
+                            <label className="block text-xs font-medium text-[#52645d]">
+                              Date &amp; time
+                              <input
+                                className="mt-1 w-full rounded-lg border border-[#dfe2db] px-3 py-2 text-sm"
+                                min={new Date(Date.now() + 60000)
+                                  .toISOString()
+                                  .slice(0, 16)}
+                                onChange={(e) => setScheduleDateTime(e.target.value)}
+                                required
+                                type="datetime-local"
+                                value={scheduleDateTime}
+                              />
+                            </label>
+                            {scheduleError && (
+                              <p className="text-xs text-red-700">{scheduleError}</p>
+                            )}
+                            <button
+                              className="rounded-lg bg-[#194d40] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                              disabled={scheduleSaving}
+                              type="submit"
+                            >
+                              {scheduleSaving ? "Scheduling…" : "Schedule"}
+                            </button>
+                          </form>
+                        )}
+
+                        {/* Existing scheduled posts for this clip */}
+                        {(scheduledPosts[clip.id] ?? []).length > 0 && (
+                          <ul className="mt-3 space-y-1.5">
+                            {(scheduledPosts[clip.id] ?? []).map((post) => (
+                              <li
+                                key={post.id}
+                                className="flex items-center justify-between rounded-lg bg-[#f7f8f5] px-3 py-2 text-xs"
+                              >
+                                <span className="capitalize text-[#52645d]">
+                                  {post.platform}
+                                </span>
+                                <span
+                                  className={`font-medium ${
+                                    post.status === "published"
+                                      ? "text-[#4f9b72]"
+                                      : post.status === "failed"
+                                        ? "text-red-600"
+                                        : "text-[#78847d]"
+                                  }`}
+                                >
+                                  {post.status}
+                                </span>
+                                {post.status === "scheduled" && (
+                                  <button
+                                    className="text-red-600 underline"
+                                    onClick={() =>
+                                      void cancelPost(post.id, clip.id)
+                                    }
+                                    type="button"
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {scheduleNotice && schedulingClipId === null && (
+                          <p className="mt-2 text-xs text-[#4f9b72]">{scheduleNotice}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </article>
               ))}

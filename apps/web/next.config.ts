@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  experimental: {
+    // Allow large video file uploads through the Next.js dev proxy (2 GB)
+    serverActions: {
+      bodySizeLimit: "2gb",
+    },
+  },
 };
 
 export default nextConfig;

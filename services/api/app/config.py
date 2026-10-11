@@ -23,3 +23,21 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434"
     llm_api_base_url: str = "https://api.openai.com/v1"
     llm_api_key: SecretStr | None = None
+
+    # Token encryption — generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    token_encryption_key: SecretStr | None = None
+
+    # Public base URL used to build OAuth redirect URIs (e.g. http://localhost:8001)
+    public_api_url: str = "http://localhost:8001"
+
+    # YouTube OAuth 2.0 (Google Cloud Console → APIs & Services → Credentials)
+    youtube_client_id: str = ""
+    youtube_client_secret: SecretStr | None = None
+
+    # TikTok OAuth 2.0 (developers.tiktok.com → Manage Apps)
+    tiktok_client_id: str = ""
+    tiktok_client_secret: SecretStr | None = None
+
+    # Instagram / Meta OAuth 2.0 (developers.facebook.com → My Apps)
+    instagram_client_id: str = ""
+    instagram_client_secret: SecretStr | None = None

@@ -24,3 +24,16 @@
   selected, and publishing requires platform-specific OAuth, account consent,
   and API/policy integration beyond local clip generation. Clips remain
   downloadable for manual posting; revisit scheduling when a provider is chosen.
+- Step 57 (revised): Platform publishing implemented for YouTube, TikTok, and
+  Instagram. OAuth 2.0 redirect flow is handled by the API; tokens are stored
+  encrypted in Postgres using Fernet (CLIPPER_TOKEN_ENCRYPTION_KEY). A scheduler
+  thread inside the worker polls every 30 seconds for due ScheduledPost rows and
+  enqueues RQ jobs. YouTube uses the resumable upload API; TikTok uses the
+  Content Posting API v2 with a single-chunk file upload; Instagram uses the
+  Content Publishing API (Reels) with a pre-signed MinIO URL as the video source
+  (Instagram requires a publicly reachable URL — the MinIO pre-signed URL works
+  only if MinIO is reachable from Meta's servers; for local-only setups a tunnel
+  such as ngrok is needed). YouTube tokens are refreshed automatically; TikTok
+  and Instagram tokens must be reconnected when they expire (typically 60 days).
+  All three platforms require registering the redirect URI
+  http://localhost:8001/auth/{platform}/callback in their developer consoles.

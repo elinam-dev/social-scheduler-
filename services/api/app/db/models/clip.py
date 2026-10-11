@@ -20,6 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.db.models.scheduled_post import ScheduledPost
     from app.db.models.video import Video
 
 
@@ -74,3 +75,6 @@ class Clip(Base):
     )
 
     video: Mapped[Video] = relationship(back_populates="clips")
+    scheduled_posts: Mapped[list[ScheduledPost]] = relationship(
+        back_populates="clip", cascade="all, delete-orphan"
+    )

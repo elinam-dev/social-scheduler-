@@ -2,11 +2,13 @@ import logging
 from time import perf_counter
 
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import RequestResponseEndpoint
 
 from app.api.routes.clips import router as clips_router
 from app.api.routes.jobs import router as jobs_router
 from app.api.routes.projects import router as projects_router
+from app.api.routes.publishing import router as publishing_router
 from app.api.routes.videos import router as videos_router
 from app.config import Settings
 from app.logging_config import configure_logging
@@ -15,10 +17,19 @@ configure_logging()
 settings = Settings()
 app = FastAPI(title=settings.project_name)
 logger = logging.getLogger(__name__)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(projects_router)
 app.include_router(jobs_router)
 app.include_router(clips_router)
 app.include_router(videos_router)
+app.include_router(publishing_router)
 
 
 @app.middleware("http")

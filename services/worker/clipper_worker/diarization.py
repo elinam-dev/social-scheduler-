@@ -33,10 +33,7 @@ def diarize_audio(
     if not path.is_file():
         raise DiarizationError(f"Audio file does not exist: {path}")
     if not hf_token:
-        raise DiarizationError(
-            "Speaker diarization requires CLIPPER_HF_TOKEN and access to "
-            f"the gated model {model_name}"
-        )
+        return DiarizationResult(speakers=(), turns=())
 
     try:
         pipeline = _load_pipeline(model_name, hf_token)

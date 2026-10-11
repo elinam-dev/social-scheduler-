@@ -3,8 +3,8 @@ from dataclasses import dataclass
 
 from clipper_worker.segmentation import Sentence
 
-DEFAULT_MIN_CANDIDATE_DURATION_SECONDS = 30.0
-DEFAULT_MAX_CANDIDATE_DURATION_SECONDS = 90.0
+DEFAULT_MIN_CANDIDATE_DURATION_SECONDS = 120.0
+DEFAULT_MAX_CANDIDATE_DURATION_SECONDS = 300.0
 
 
 @dataclass(frozen=True)

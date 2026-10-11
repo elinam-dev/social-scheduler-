@@ -8,3 +8,4 @@ python-multipart>=0.0.20,<1
 redis>=5,<7
 rq>=2,<3
 uvicorn[standard]>=0.34,<1
+cryptography>=42,<45
